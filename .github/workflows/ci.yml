@@ -14,7 +14,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - run: make build
+      - uses: extractions/setup-just@v2
+      - run: just build
 
   test:
     runs-on: ubuntu-latest
@@ -23,7 +24,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - run: make test
+      - uses: extractions/setup-just@v2
+      - run: just test
 
   lint:
     runs-on: ubuntu-latest

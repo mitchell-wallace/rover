@@ -28,8 +28,8 @@ Or build from source:
 
 ```sh
 git clone https://github.com/mitchell-wallace/rover && cd rover
-make build           # produces ./bin/rover
-make install         # installs to $GOBIN
+just build           # produces ./bin/rover
+just install         # installs to ~/.local/bin (override with ROVER_INSTALL_DIR)
 ```
 
 The binary is self-contained: the Bicep templates, Azure scripts, cloud-init,
@@ -207,9 +207,10 @@ increase (a few cores is plenty):
 ## Development
 
 ```sh
-make build      # build ./bin/rover
-make test       # go test ./...
-make lint       # golangci-lint
+just build      # build ./bin/rover
+just install    # build + copy to ~/.local/bin
+just test       # go test ./...
+just lint       # golangci-lint
 ROVER_ASSET_DIR=$PWD ./bin/rover status   # run against in-repo assets (no rebuild)
 ```
 
