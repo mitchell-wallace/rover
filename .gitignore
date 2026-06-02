@@ -1,6 +1,10 @@
-# add standard patterns here
-# ...
+/bin/
+/dist/
 
 # temp files, rough notes
 /tmp/*
 scratchpad.md
+.antigravitycli/
+
+# local-only overrides
+*.local

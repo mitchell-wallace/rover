@@ -1,0 +1,28 @@
+#cloud-config
+# Rover first-boot preparation.
+#
+# Keep this minimal: its only job is to make the VM reachable and ready for
+# Ansible to take over. The full Dune host configuration lives in the Ansible
+# role, NOT here. Do not duplicate package installs that Ansible owns.
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - python3
+  - python3-apt
+  - sudo
+
+# Ensure the SSH server is up and the admin user (created by Azure from the
+# provided public key) can be reached. Azure injects the admin user + key via
+# the osProfile, so we only need to guarantee sshd is enabled.
+runcmd:
+  - systemctl enable --now ssh || systemctl enable --now sshd || true
+  - touch /var/lib/rover-cloud-init-done
+
+# A marker Ansible/scripts can poll to know first boot finished.
+write_files:
+  - path: /etc/rover/cloud-init.txt
+    permissions: '0644'
+    content: |
+      Rover cloud-init ran. Host is prepared for Ansible provisioning.

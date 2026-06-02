@@ -1,0 +1,51 @@
+name: auto-tag
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check VERSION change, create tag, and dispatch release
+        run: |
+          if git diff HEAD~1 --quiet -- VERSION; then
+            echo "VERSION file unchanged, skipping."
+            exit 0
+          fi
+
+          RAW_VERSION="$(tr -d '[:space:]' < VERSION)"
+          if ! printf '%s' "$RAW_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "VERSION must be a semantic version like 0.2.0, got: $RAW_VERSION"
+            exit 1
+          fi
+
+          VERSION="v$RAW_VERSION"
+          echo "VERSION changed to $VERSION"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null; then
+            echo "Tag $VERSION already exists on origin."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$VERSION"
+            git push origin "$VERSION"
+            echo "Created and pushed tag $VERSION"
+          fi
+
+          echo "Dispatching release workflow for $VERSION"
+          gh api "repos/{owner}/{repo}/actions/workflows/release.yml/dispatches" \
+            --method POST \
+            --field ref="$VERSION"
+        env:
+          GH_TOKEN: ${{ github.token }}
