@@ -17,6 +17,7 @@ ASSET_ROOT="$(cd "${COMMON_DIR}/../.." && pwd)"
 ROVER_RESOURCE_GROUP="${ROVER_RESOURCE_GROUP:-rover-rg}"
 ROVER_LOCATION="${ROVER_LOCATION:-australiaeast}"
 ROVER_VM_NAME="${ROVER_VM_NAME:-rover-vm}"
+ROVER_DISK_GB="${ROVER_DISK_GB:-30}"
 ROVER_ADMIN_USER="${ROVER_ADMIN_USER:-${USER:-rover}}"
 ROVER_SSH_PUBKEY="${ROVER_SSH_PUBKEY:-$HOME/.ssh/id_rsa.pub}"
 # Private key is derived from the public key path unless set explicitly.
@@ -41,6 +42,9 @@ az_init() {
   require_cmd az
   if [ -n "${ROVER_SUBSCRIPTION}" ]; then
     az_args=(--subscription "${ROVER_SUBSCRIPTION}")
+  fi
+  if ! az account show "${az_args[@]}" -o none 2>/dev/null; then
+    die "not logged in to Azure. Run 'az login' (and 'az account set --subscription <id>')."
   fi
 }
 
@@ -84,7 +88,7 @@ vm_power_state() {
 # Emits connection info as JSON to stdout. Reads from live Azure resources so it
 # works even if the local state file is missing.
 emit_connection_info() {
-  local power pubip fqdn privip vmsize
+  local power pubip fqdn privip vmsize diskgb
   power="$(vm_power_state)"
   if [ "${power}" = "absent" ]; then
     printf '{"exists":false,"powerState":"absent","vmName":"%s","resourceGroup":"%s","location":"%s"}\n' \
@@ -92,6 +96,7 @@ emit_connection_info() {
     return 0
   fi
   vmsize="$(azx vm show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" --query 'hardwareProfile.vmSize' -o tsv 2>/dev/null || echo '')"
+  diskgb="$(azx disk show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}-osdisk" --query 'diskSizeGb' -o tsv 2>/dev/null || echo '')"
   pubip="$(azx vm list-ip-addresses -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" \
     --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' -o tsv 2>/dev/null || echo '')"
   # FQDN lives on the public-IP resource (named <vm>-pip by our Bicep), not on
@@ -103,7 +108,7 @@ emit_connection_info() {
 
   local host="${fqdn:-$pubip}"
   cat <<JSON
-{"exists":true,"powerState":"${power}","vmName":"${ROVER_VM_NAME}","resourceGroup":"${ROVER_RESOURCE_GROUP}","location":"${ROVER_LOCATION}","vmSize":"${vmsize}","adminUsername":"${ROVER_ADMIN_USER}","publicIp":"${pubip}","fqdn":"${fqdn}","privateIp":"${privip}","sshTarget":"${ROVER_ADMIN_USER}@${host}"}
+{"exists":true,"powerState":"${power}","vmName":"${ROVER_VM_NAME}","resourceGroup":"${ROVER_RESOURCE_GROUP}","location":"${ROVER_LOCATION}","vmSize":"${vmsize}","diskSizeGB":${diskgb:-0},"adminUsername":"${ROVER_ADMIN_USER}","publicIp":"${pubip}","fqdn":"${fqdn}","privateIp":"${privip}","sshTarget":"${ROVER_ADMIN_USER}@${host}"}
 JSON
 }
 

@@ -50,6 +50,7 @@ func printConfig(st *config.State) {
 	fmt.Printf("  region:          %s\n", st.Location)
 	fmt.Printf("  vm name:         %s\n", st.VMName)
 	fmt.Printf("  size:            %s\n", st.Size)
+	fmt.Printf("  disk:            %d GiB\n", st.DiskGB())
 	fmt.Printf("  admin username:  %s\n", st.AdminUsername)
 	fmt.Printf("  ssh public key:  %s\n", st.SSHPublicKey)
 	fmt.Printf("  ssh private key: %s\n", st.PrivateKeyPath())

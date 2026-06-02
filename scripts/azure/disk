@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# rover disk <new-size-gb> [--json]
+#
+# Grows the OS disk to <new-size-gb>. Azure OS disks can only grow, never shrink.
+# Resizing requires the VM to be deallocated; this script deallocates if needed,
+# resizes, and restarts the VM if it was running. Ubuntu cloud-init grows the
+# root filesystem automatically on the next boot.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+NEW_GB=""
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON=1 ;;
+    ''|*[!0-9]*) die "invalid argument: $arg (usage: disk <new-size-gb> [--json])" ;;
+    *) NEW_GB="$arg" ;;
+  esac
+done
+[ -n "${NEW_GB}" ] || die "missing new size (usage: disk <new-size-gb>)"
+
+az_init
+
+vm_exists || die "no Rover VM provisioned; run 'rover up' first"
+
+DISK_NAME="${ROVER_VM_NAME}-osdisk"
+CUR_GB="$(azx disk show -g "${ROVER_RESOURCE_GROUP}" -n "${DISK_NAME}" --query diskSizeGb -o tsv 2>/dev/null || echo 0)"
+
+if [ "${NEW_GB}" -lt "${CUR_GB}" ]; then
+  die "OS disks cannot shrink (current ${CUR_GB} GiB, requested ${NEW_GB} GiB)."
+fi
+if [ "${NEW_GB}" -eq "${CUR_GB}" ]; then
+  log "Disk already ${CUR_GB} GiB; nothing to do."
+  [ "${JSON}" = "1" ] && emit_connection_info
+  exit 0
+fi
+
+START_STATE="$(vm_power_state)"
+WAS_RUNNING=0
+case "${START_STATE}" in *running*) WAS_RUNNING=1 ;; esac
+
+if [ "${WAS_RUNNING}" = "1" ]; then
+  log "Deallocating ${ROVER_VM_NAME} to resize the disk..."
+  azx vm deallocate -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+fi
+
+log "Resizing ${DISK_NAME}: ${CUR_GB} GiB -> ${NEW_GB} GiB..."
+azx disk update -g "${ROVER_RESOURCE_GROUP}" -n "${DISK_NAME}" --size-gb "${NEW_GB}" -o none
+
+if [ "${WAS_RUNNING}" = "1" ]; then
+  log "Starting ${ROVER_VM_NAME} (root filesystem auto-grows on boot)..."
+  azx vm start -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+else
+  log "VM left deallocated. The filesystem will grow on next 'rover up'."
+fi
+
+log "Disk resized to ${NEW_GB} GiB."
+[ "${JSON}" = "1" ] && emit_connection_info
+exit 0

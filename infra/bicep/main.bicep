@@ -28,29 +28,21 @@ param size string = 'small'
 @description('DNS label prefix for the public IP. Must be globally unique within the region.')
 param dnsLabelPrefix string = toLower('${vmName}-${uniqueString(resourceGroup().id)}')
 
+@description('OS disk size in GiB. Decoupled from compute size: the disk (and its data) is preserved across resizes. Can only grow, never shrink.')
+@minValue(30)
+param osDiskSizeGB int = 30
+
 // ---------------------------------------------------------------------------
-// Size profiles. Edit these to change the machine envelope per size.
+// Compute size profiles. These map ONLY to a VM SKU — disk is intentionally
+// independent (see osDiskSizeGB) so resizing compute never touches your data.
 // ---------------------------------------------------------------------------
-var sizeProfiles = {
-  small: {
-    vmSize: 'Standard_B2ls_v2' // 2 vCPU / 4 GiB
-    osDiskSizeGB: 30
-    dataDiskSizeGB: 0
-  }
-  medium: {
-    vmSize: 'Standard_B2s_v2' // 2 vCPU / 8 GiB
-    osDiskSizeGB: 30
-    dataDiskSizeGB: 0
-  }
-  large: {
-    vmSize: 'Standard_B4s_v2' // 4 vCPU / 16 GiB
-    osDiskSizeGB: 64
-    dataDiskSizeGB: 0
-  }
+var vmSkus = {
+  small: 'Standard_B2ls_v2' // 2 vCPU / 4 GiB
+  medium: 'Standard_B2s_v2' // 2 vCPU / 8 GiB
+  large: 'Standard_B4s_v2' // 4 vCPU / 16 GiB
 }
 
-var profile = sizeProfiles[size]
-var hasDataDisk = profile.dataDiskSizeGB > 0
+var vmSize = vmSkus[size]
 
 // Stable derived names.
 var nsgName = '${vmName}-nsg'
@@ -146,7 +138,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
   location: location
   properties: {
     hardwareProfile: {
-      vmSize: profile.vmSize
+      vmSize: vmSize
     }
     osProfile: {
       computerName: vmName
@@ -174,22 +166,11 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
       osDisk: {
         name: '${vmName}-osdisk'
         createOption: 'FromImage'
-        diskSizeGB: profile.osDiskSizeGB
+        diskSizeGB: osDiskSizeGB
         managedDisk: {
           storageAccountType: 'StandardSSD_LRS'
         }
       }
-      dataDisks: hasDataDisk ? [
-        {
-          name: '${vmName}-datadisk'
-          lun: 0
-          createOption: 'Empty'
-          diskSizeGB: profile.dataDiskSizeGB
-          managedDisk: {
-            storageAccountType: 'StandardSSD_LRS'
-          }
-        }
-      ] : []
     }
     networkProfile: {
       networkInterfaces: [
@@ -208,7 +189,8 @@ output vmName string = vm.name
 output resourceGroup string = resourceGroup().name
 output location string = location
 output adminUsername string = adminUsername
-output vmSize string = profile.vmSize
+output vmSize string = vmSize
+output osDiskSizeGB int = osDiskSizeGB
 output publicIp string = pip.properties.ipAddress
 output fqdn string = pip.properties.dnsSettings.fqdn
 output privateIp string = nic.properties.ipConfigurations[0].properties.privateIPAddress

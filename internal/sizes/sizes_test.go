@@ -15,7 +15,7 @@ func TestProfilesMatchOrder(t *testing.T) {
 		if p.Name != name {
 			t.Errorf("profile %q has Name %q", name, p.Name)
 		}
-		if p.SKU == "" || p.VCPU == 0 || p.RAMGiB == 0 || p.OSDiskGB == 0 {
+		if p.SKU == "" || p.VCPU == 0 || p.RAMGiB == 0 {
 			t.Errorf("profile %q has zero-valued field: %+v", name, p)
 		}
 	}

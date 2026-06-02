@@ -115,17 +115,40 @@ applied.
 rover up small          # or: rover up --size medium / rover up large
 ```
 
-Size profiles (edit in `infra/bicep/main.bicep`):
+Compute size profiles (edit in `infra/bicep/main.bicep`):
 
-| size   | SKU                | vCPU | RAM    | OS disk |
-|--------|--------------------|------|--------|---------|
-| small  | Standard_B2ls_v2   | 2    | 4 GiB  | 30 GiB  |
-| medium | Standard_B2s_v2    | 2    | 8 GiB  | 30 GiB  |
-| large  | Standard_B4s_v2    | 4    | 16 GiB | 64 GiB  |
+| size   | SKU                | vCPU | RAM    |
+|--------|--------------------|------|--------|
+| small  | Standard_B2ls_v2   | 2    | 4 GiB  |
+| medium | Standard_B2s_v2    | 2    | 8 GiB  |
+| large  | Standard_B4s_v2    | 4    | 16 GiB |
+
+Disk size is **independent of compute size** (see [Disk](#disk-storage) below) —
+changing size only swaps the CPU/RAM envelope and **preserves your disk and its
+data**.
 
 `up` creates the resource group, registers required providers (one-time),
 deploys via Bicep, and runs cloud-init for first-boot prep. Re-running `up`
 redeploys/resizes the same VM in place — Rover enforces one VM at a time.
+
+## Disk / storage
+
+The OS disk is a single persistent disk whose size is **decoupled from the
+compute size**, so you can scale CPU/RAM up and down without ever touching your
+data. The size is tracked in Rover config (default 30 GiB) and applied on every
+`up`.
+
+```sh
+rover disk 64        # grow the OS disk to 64 GiB
+rover status         # shows current disk size
+```
+
+Notes:
+- Azure OS disks can **grow but never shrink**.
+- Resizing deallocates the VM briefly, then restarts it if it was running;
+  Ubuntu's cloud-init grows the root filesystem automatically on the next boot.
+- The new size is persisted, so later `rover up` (incl. compute resizes) keeps
+  it. Running `rover disk <gb>` before the first `up` just records the size.
 
 ## Provisioning with Ansible
 

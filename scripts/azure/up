@@ -42,7 +42,7 @@ fi
 
 PUBKEY_CONTENT="$(cat "${ROVER_SSH_PUBKEY}")"
 
-azx deployment group create \
+if ! deploy_err="$(azx deployment group create \
   --resource-group "${ROVER_RESOURCE_GROUP}" \
   --name "${ROVER_DEPLOYMENT_NAME}" \
   --template-file "${ROVER_BICEP}" \
@@ -52,7 +52,21 @@ azx deployment group create \
     adminUsername="${ROVER_ADMIN_USER}" \
     sshPublicKey="${PUBKEY_CONTENT}" \
     size="${SIZE}" \
-  -o none
+    osDiskSizeGB="${ROVER_DISK_GB}" \
+  -o none 2>&1)"; then
+  printf '%s\n' "${deploy_err}" >&2
+  if printf '%s' "${deploy_err}" | grep -q "QuotaExceeded"; then
+    err "Azure core quota exceeded for this VM family in ${ROVER_LOCATION}."
+    err "Request an increase (Portal: Subscriptions > Usage + quotas) or pick a"
+    err "region/SKU with quota and edit infra/bicep/main.bicep. See README 'Quota'."
+  elif printf '%s' "${deploy_err}" | grep -q "SkuNotAvailable"; then
+    err "The '${SIZE}' VM size is not available in ${ROVER_LOCATION} right now."
+    err "Try a different region (rover config --edit) or size."
+  elif printf '%s' "${deploy_err}" | grep -qi "shrink\|cannot be smaller\|decrease"; then
+    err "The OS disk cannot be shrunk. Set disk size >= current with 'rover disk <GB>'."
+  fi
+  exit 1
+fi
 
 log "Deployment complete."
 

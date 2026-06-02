@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 
 	"github.com/mitchell-wallace/rover/internal/config"
 )
@@ -23,6 +24,7 @@ type Info struct {
 	ResourceGroup string `json:"resourceGroup"`
 	Location      string `json:"location"`
 	VMSize        string `json:"vmSize"`
+	DiskSizeGB    int    `json:"diskSizeGB"`
 	AdminUsername string `json:"adminUsername"`
 	PublicIP      string `json:"publicIp"`
 	FQDN          string `json:"fqdn"`
@@ -119,6 +121,11 @@ func (c *Client) Down(delete, yes bool) (Info, error) {
 // Status returns the current VM info.
 func (c *Client) Status() (Info, error) {
 	return c.runJSON("status")
+}
+
+// ResizeDisk grows the OS disk to gb GiB and returns updated info.
+func (c *Client) ResizeDisk(gb int) (Info, error) {
+	return c.runJSON("disk", strconv.Itoa(gb))
 }
 
 // Info returns the current connection info (alias of status JSON via ip).

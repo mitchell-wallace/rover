@@ -30,6 +30,7 @@ type State struct {
 	Location       string     `json:"location"`
 	VMName         string     `json:"vmName"`
 	Size           string     `json:"size"`
+	DiskSizeGB     int        `json:"diskSizeGB"`
 	AdminUsername  string     `json:"adminUsername"`
 	SSHPublicKey   string     `json:"sshPublicKey"`
 	SSHPrivateKey  string     `json:"sshPrivateKey,omitempty"`
@@ -40,6 +41,14 @@ type State struct {
 	// the TS_AUTHKEY environment variable at provision time.
 	TailscaleHostname string `json:"tailscaleHostname,omitempty"`
 	TailscaleTags     string `json:"tailscaleTags,omitempty"`
+}
+
+// DiskGB returns the configured OS disk size, clamped to the 30 GiB minimum.
+func (s *State) DiskGB() int {
+	if s.DiskSizeGB < 30 {
+		return 30
+	}
+	return s.DiskSizeGB
 }
 
 // TSHostname returns the Tailscale node name, defaulting to the VM name.
@@ -60,7 +69,6 @@ func (s *State) TSTags() string {
 
 // Default returns a State pre-populated with sane defaults for a first run.
 func Default() *State {
-	home, _ := os.UserHomeDir()
 	admin := "rover"
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		admin = u.Username
@@ -70,10 +78,25 @@ func Default() *State {
 		Location:      "australiaeast",
 		VMName:        "rover-vm",
 		Size:          "small",
+		DiskSizeGB:    30,
 		AdminUsername: admin,
-		SSHPublicKey:  filepath.Join(home, ".ssh", "id_rsa.pub"),
+		SSHPublicKey:  defaultSSHKey(),
 		TailscaleTags: "tag:rover",
 	}
+}
+
+// defaultSSHKey picks an existing public key (preferring ed25519), falling back
+// to the conventional ed25519 path so a fresh user is nudged toward it.
+func defaultSSHKey() string {
+	home, _ := os.UserHomeDir()
+	candidates := []string{"id_ed25519.pub", "id_rsa.pub", "id_ecdsa.pub"}
+	for _, c := range candidates {
+		p := filepath.Join(home, ".ssh", c)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join(home, ".ssh", "id_ed25519.pub")
 }
 
 // Path returns the location of the state file (honours XDG via UserConfigDir).
@@ -145,6 +168,7 @@ func (s *State) Env() []string {
 	add("ROVER_RESOURCE_GROUP", s.ResourceGroup)
 	add("ROVER_LOCATION", s.Location)
 	add("ROVER_VM_NAME", s.VMName)
+	add("ROVER_DISK_GB", fmt.Sprintf("%d", s.DiskGB()))
 	add("ROVER_ADMIN_USER", s.AdminUsername)
 	add("ROVER_SSH_PUBKEY", s.SSHPublicKey)
 	add("ROVER_SSH_KEY", s.PrivateKeyPath())

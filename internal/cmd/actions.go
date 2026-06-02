@@ -28,6 +28,8 @@ func doUp(a *appContext, size string, assumeYes bool) error {
 	}
 	profile, _ := sizes.Get(size)
 	ui.Info("Selected size: %s", profile.Describe())
+	ui.Info("Destination: %s / %s in %s as user %q (disk %d GiB)",
+		a.state.ResourceGroup, a.state.VMName, a.state.Location, a.state.AdminUsername, a.state.DiskGB())
 
 	current, err := a.azure.Status()
 	if err == nil && current.Running() && current.VMSize != "" && current.VMSize != profile.SKU {
@@ -102,6 +104,57 @@ func doDown(a *appContext, delete, assumeYes bool) error {
 		ui.Info("VM deallocated. Resume later with 'rover up'.")
 		ui.Warn("Cost: OS disk and static public IP still incur small charges. 'rover down --delete' removes everything.")
 	}
+	return nil
+}
+
+// doDisk grows the OS disk to gb GiB, preserving the disk and its data. The new
+// size is persisted so subsequent `up` deploys keep it.
+func doDisk(a *appContext, gb int, assumeYes bool) error {
+	if gb < 30 {
+		return fmt.Errorf("disk size must be at least 30 GiB")
+	}
+	current, err := a.azure.Status()
+	if err != nil {
+		return err
+	}
+	if !current.Exists {
+		// No VM yet: just record the desired size for the next `up`.
+		a.state.DiskSizeGB = gb
+		if err := a.state.Save(); err != nil {
+			return err
+		}
+		ui.Info("No VM yet — recorded disk size %d GiB for the next 'rover up'.", gb)
+		return nil
+	}
+	if current.DiskSizeGB > 0 && gb < current.DiskSizeGB {
+		return fmt.Errorf("OS disks cannot shrink (current %d GiB, requested %d GiB)", current.DiskSizeGB, gb)
+	}
+	if current.DiskSizeGB == gb {
+		ui.Info("Disk already %d GiB; nothing to do.", gb)
+		a.state.DiskSizeGB = gb
+		_ = a.state.Save()
+		return nil
+	}
+
+	ok, err := ui.Confirm(
+		fmt.Sprintf("Resize OS disk %d → %d GiB?", current.DiskSizeGB, gb),
+		"The VM will be deallocated during the resize (brief downtime) and restarted if it was running.",
+		true,
+	)
+	if err != nil {
+		return err
+	}
+	if !ok && !assumeYes {
+		return fmt.Errorf("aborted")
+	}
+
+	info, err := a.azure.ResizeDisk(gb)
+	if err != nil {
+		return err
+	}
+	a.state.DiskSizeGB = gb
+	a.syncConnection(info)
+	ui.Info("OS disk is now %d GiB. The root filesystem auto-grows on boot.", gb)
 	return nil
 }
 
@@ -214,6 +267,9 @@ func doConnect(a *appContext, extra ...string) error {
 
 func printInfo(info azure.Info) {
 	fmt.Printf("  size:        %s\n", info.VMSize)
+	if info.DiskSizeGB > 0 {
+		fmt.Printf("  disk:        %d GiB\n", info.DiskSizeGB)
+	}
 	fmt.Printf("  region:      %s\n", info.Location)
 	fmt.Printf("  public IP:   %s\n", info.PublicIP)
 	fmt.Printf("  fqdn:        %s\n", info.FQDN)
