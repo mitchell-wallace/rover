@@ -1,0 +1,6 @@
+# add standard patterns here
+# ...
+
+# temp files, rough notes
+/tmp/*
+scratchpad.md
