@@ -45,5 +45,5 @@ jobs:
       - name: Run shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck scripts/azure/*.sh scripts/azure/up scripts/azure/down \
-            scripts/azure/status scripts/azure/ssh scripts/azure/ip install.sh
+          # All Azure scripts (extensionless ones carry shebangs) plus install.sh.
+          shellcheck scripts/azure/* install.sh
