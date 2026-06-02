@@ -12,10 +12,11 @@ import (
 
 // Params describes a provisioning run.
 type Params struct {
-	Host       string // public IP or FQDN
-	User       string // SSH/admin user
-	PrivateKey string // path to SSH private key
-	AssetDir   string // materialized asset tree root
+	Host       string            // public IP or FQDN
+	User       string            // SSH/admin user
+	PrivateKey string            // path to SSH private key
+	AssetDir   string            // materialized asset tree root
+	ExtraVars  map[string]string // non-secret -e key=value vars for the playbook
 }
 
 // Available reports whether ansible-playbook is on PATH.
@@ -41,6 +42,9 @@ func Provision(p Params) error {
 	}
 	if p.PrivateKey != "" {
 		args = append(args, "--private-key", p.PrivateKey)
+	}
+	for k, v := range p.ExtraVars {
+		args = append(args, "-e", k+"="+v)
 	}
 
 	cmd := exec.Command("ansible-playbook", args...)

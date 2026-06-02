@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
+	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/spf13/cobra"
 )
 
@@ -53,6 +54,13 @@ func doDoctor() error {
 	check("ssh client installed", sshErr == nil, "install OpenSSH client")
 
 	check("Ansible installed", ansible.Available(), "install Ansible (e.g. 'pipx install ansible')")
+
+	// Tailscale is optional; report status without failing the overall check.
+	if tailscale.Available() {
+		fmt.Printf("  \033[1;32m✓\033[0m Tailscale CLI installed (optional, for 'rover connect')\n")
+	} else {
+		fmt.Printf("  \033[1;34m·\033[0m Tailscale CLI not installed (optional) — needed only for 'rover connect'\n")
+	}
 
 	_, keyErr := os.Stat(st.SSHPublicKey)
 	check(fmt.Sprintf("SSH public key present (%s)", st.SSHPublicKey), keyErr == nil,

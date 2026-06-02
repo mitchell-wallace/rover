@@ -1,0 +1,50 @@
+---
+# All tasks are skipped unless an auth key is provided (TS_AUTHKEY), so Tailscale
+# stays strictly opt-in. The role is idempotent and safe to re-run.
+
+- name: Tailscale enabled?
+  ansible.builtin.debug:
+    msg: "TS_AUTHKEY not set — skipping Tailscale setup."
+  when: tailscale_authkey | length == 0
+
+- name: Install Tailscale
+  become: true
+  ansible.builtin.shell: curl -fsSL https://tailscale.com/install.sh | sh
+  args:
+    creates: /usr/bin/tailscale
+  when: tailscale_authkey | length > 0
+
+- name: Get current Tailscale backend state
+  become: true
+  ansible.builtin.command: tailscale status --json
+  register: ts_status
+  changed_when: false
+  failed_when: false
+  when: tailscale_authkey | length > 0
+
+- name: Bring Tailscale up (with Tailscale SSH)
+  become: true
+  ansible.builtin.command: >-
+    tailscale up
+    --ssh
+    --hostname={{ tailscale_hostname }}
+    --advertise-tags={{ tailscale_tags }}
+    --authkey={{ tailscale_authkey }}
+  no_log: true
+  when:
+    - tailscale_authkey | length > 0
+    - ts_status.rc is defined
+    - (ts_status.rc != 0) or ('"BackendState":"Running"' not in (ts_status.stdout | default('')))
+
+- name: Report Tailscale address
+  become: true
+  ansible.builtin.command: tailscale ip -4
+  register: ts_ip
+  changed_when: false
+  failed_when: false
+  when: tailscale_authkey | length > 0
+
+- name: Show Tailscale result
+  ansible.builtin.debug:
+    msg: "Tailscale up as '{{ tailscale_hostname }}' ({{ ts_ip.stdout | default('unknown') }}). Connect with 'rover connect'."
+  when: tailscale_authkey | length > 0

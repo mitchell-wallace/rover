@@ -35,6 +35,27 @@ type State struct {
 	SSHPrivateKey  string     `json:"sshPrivateKey,omitempty"`
 	Connection     Connection `json:"connection,omitempty"`
 	AnsibleApplied bool       `json:"ansibleApplied"`
+
+	// Tailscale (optional). The auth key is never stored here — it is read from
+	// the TS_AUTHKEY environment variable at provision time.
+	TailscaleHostname string `json:"tailscaleHostname,omitempty"`
+	TailscaleTags     string `json:"tailscaleTags,omitempty"`
+}
+
+// TSHostname returns the Tailscale node name, defaulting to the VM name.
+func (s *State) TSHostname() string {
+	if s.TailscaleHostname != "" {
+		return s.TailscaleHostname
+	}
+	return s.VMName
+}
+
+// TSTags returns the Tailscale tags, defaulting to tag:rover.
+func (s *State) TSTags() string {
+	if s.TailscaleTags != "" {
+		return s.TailscaleTags
+	}
+	return "tag:rover"
 }
 
 // Default returns a State pre-populated with sane defaults for a first run.
@@ -51,6 +72,7 @@ func Default() *State {
 		Size:          "small",
 		AdminUsername: admin,
 		SSHPublicKey:  filepath.Join(home, ".ssh", "id_rsa.pub"),
+		TailscaleTags: "tag:rover",
 	}
 }
 

@@ -36,6 +36,7 @@ func runInteractive() error {
 				huh.NewOption("Up (start/resize VM)", "up"),
 				huh.NewOption("Provision (Ansible)", "provision"),
 				huh.NewOption("SSH into VM", "ssh"),
+				huh.NewOption("Connect (Tailscale)", "connect"),
 				huh.NewOption("Down (deallocate)", "down"),
 				huh.NewOption("Delete all resources", "delete"),
 				huh.NewOption("Config", "config"),
@@ -67,6 +68,8 @@ func runInteractive() error {
 			err = doProvision(a)
 		case "ssh":
 			err = doSSH(a)
+		case "connect":
+			err = doConnect(a)
 		case "down":
 			err = doDown(a, false, false)
 		case "delete":

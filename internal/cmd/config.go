@@ -54,6 +54,8 @@ func printConfig(st *config.State) {
 	fmt.Printf("  ssh public key:  %s\n", st.SSHPublicKey)
 	fmt.Printf("  ssh private key: %s\n", st.PrivateKeyPath())
 	fmt.Printf("  ansible applied: %v\n", st.AnsibleApplied)
+	fmt.Printf("  tailscale name:  %s\n", st.TSHostname())
+	fmt.Printf("  tailscale tags:  %s\n", st.TSTags())
 }
 
 func editConfig(st *config.State) error {
@@ -66,6 +68,8 @@ func editConfig(st *config.State) error {
 			Options(huh.NewOptions(sizes.Order...)...).Value(&st.Size),
 		huh.NewInput().Title("Admin username").Value(&st.AdminUsername),
 		huh.NewInput().Title("SSH public key path").Value(&st.SSHPublicKey),
+		huh.NewInput().Title("Tailscale hostname (blank = VM name)").Value(&st.TailscaleHostname),
+		huh.NewInput().Title("Tailscale tags").Value(&st.TailscaleTags),
 	))
 	if err := form.Run(); err != nil {
 		return err

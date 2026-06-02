@@ -47,6 +47,7 @@ rover (Go CLI)
 infra/bicep/main.bicep        size profiles, network, VM, cloud-init
 infra/cloud-init/             minimal first-boot prep for Ansible
 ansible/roles/dune/           Docker, dune, zsh+p10k, gh, lazydocker, gitui, ...
+ansible/roles/tailscale/      optional tailnet join + Tailscale SSH (opt-in)
 scripts/azure/                up · down · status · ssh · ip (usable standalone)
 ```
 
@@ -141,10 +142,61 @@ and is fully idempotent (re-run any time).
 ## Connecting to the VM
 
 ```sh
-rover ssh                       # interactive shell
+rover ssh                       # interactive shell (public IP + SSH key)
 rover ssh -- uname -a           # run a one-off remote command
+rover connect                   # connect over Tailscale (see below)
 rover status                    # power state + connection info
 ```
+
+## Tailscale (optional)
+
+Rover can join each VM to your [Tailscale](https://tailscale.com) tailnet so you
+connect over an encrypted mesh with `rover connect` — independent of the Azure
+public IP, using **Tailscale SSH** (no SSH keypair to manage). It's strictly
+opt-in: if you don't set `TS_AUTHKEY`, provisioning skips Tailscale entirely.
+
+**One-time setup:**
+
+1. Create a free account at [login.tailscale.com](https://login.tailscale.com)
+   and install the Tailscale client on **your laptop** (`tailscale up`).
+2. In the admin console, edit the **ACL policy** to define the `tag:rover` owner
+   and allow Tailscale SSH to it, e.g.:
+
+   ```jsonc
+   {
+     "tagOwners": { "tag:rover": ["autogroup:admin"] },
+     "ssh": [
+       {
+         "action": "accept",
+         "src":    ["autogroup:member"],
+         "dst":    ["tag:rover"],
+         "users":  ["autogroup:nonroot"]
+       }
+     ]
+   }
+   ```
+3. Generate an **auth key** (Settings → Keys → *Generate auth key*): make it
+   **Reusable** + **Ephemeral**, and attach the tag **`tag:rover`**. Ephemeral
+   means deallocated/deleted VMs auto-clean from your tailnet.
+
+**Use it:**
+
+```sh
+export TS_AUTHKEY=tskey-auth-xxxxxxxx     # the key you generated
+rover up small
+rover provision                            # detects TS_AUTHKEY, joins the tailnet
+rover connect                              # Tailscale SSH to rover-vm
+```
+
+`rover connect` checks that the VM is online in your tailnet and connects to its
+MagicDNS name (`<hostname>.<tailnet>.ts.net`). If it's offline it tells you to
+`rover up`; if it was never provisioned with Tailscale it falls back to a hint to
+use `rover ssh`. The node name/tags are configurable via `rover config --edit`
+(defaults: hostname = VM name, tags = `tag:rover`). The auth key is **never**
+stored on disk — it's read from `TS_AUTHKEY` at provision time only.
+
+> Note: Rover keeps public SSH (port 22) open as well, so `rover ssh` always
+> works as a fallback. Locking the NSG down to Tailscale-only is a future option.
 
 ## Running Dune remotely
 
@@ -201,8 +253,9 @@ increase (a few cores is plenty):
 - **No remote Dune/Rally session detection.** Future work: warn before bringing
   down a VM with an active session, and cost/cleanup reminders.
 - **Not integrated into Dune** yet — Rover is standalone for now.
-- Tailscale is not required for the MVP (public IP + SSH). It can be layered on
-  later via the Ansible role.
+- **Tailscale is optional** (see above) and additive — public SSH stays open.
+  Auth keys expire (max 90 days); for fully hands-off automation, a Tailscale
+  OAuth client (mint keys on demand) is a future upgrade.
 
 ## Development
 

@@ -13,3 +13,4 @@
     target_user: "{{ ansible_user | default(ansible_env.USER) }}"
   roles:
     - dune
+    - tailscale

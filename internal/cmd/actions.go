@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/sizes"
+	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
 
@@ -152,12 +155,22 @@ func doProvision(a *appContext) error {
 		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
 	}
 
+	if os.Getenv("TS_AUTHKEY") != "" {
+		ui.Info("TS_AUTHKEY detected — VM will join your tailnet as %q.", a.state.TSHostname())
+	} else {
+		ui.Info("TS_AUTHKEY not set — skipping Tailscale (set it to enable 'rover connect').")
+	}
+
 	ui.Info("Provisioning %s (%s) with Ansible...", info.VMName, info.Host())
 	err = ansible.Provision(ansible.Params{
 		Host:       info.Host(),
 		User:       a.state.AdminUsername,
 		PrivateKey: a.state.PrivateKeyPath(),
 		AssetDir:   a.assetDir,
+		ExtraVars: map[string]string{
+			"tailscale_hostname": a.state.TSHostname(),
+			"tailscale_tags":     a.state.TSTags(),
+		},
 	})
 	if err != nil {
 		return err
@@ -166,6 +179,37 @@ func doProvision(a *appContext) error {
 	a.syncConnection(info)
 	ui.Info("Provisioning complete. Connect with 'rover ssh' and run 'dune'.")
 	return nil
+}
+
+// doConnect connects to the VM over Tailscale if it is online in the tailnet.
+func doConnect(a *appContext, extra ...string) error {
+	host := a.state.TSHostname()
+	peer, err := tailscale.FindPeer(host)
+	if err != nil {
+		var notFound *tailscale.PeerNotFoundError
+		switch {
+		case errors.Is(err, tailscale.ErrNotInstalled):
+			return err
+		case errors.Is(err, tailscale.ErrNotRunning):
+			return err
+		case errors.As(err, &notFound):
+			ui.Warn("%v.", err)
+			ui.Info("If the VM is up, provision it with Tailscale: TS_AUTHKEY=<key> rover provision")
+			ui.Info("Otherwise start it with 'rover up'. Plain SSH still works via 'rover ssh'.")
+			return fmt.Errorf("%q not reachable over Tailscale", host)
+		default:
+			return err
+		}
+	}
+	if !peer.Online {
+		ui.Warn("%q is in your tailnet but offline (likely deallocated).", host)
+		ui.Info("Start it with 'rover up'.")
+		return fmt.Errorf("%q is offline", host)
+	}
+
+	target := peer.Target()
+	ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
+	return tailscale.Connect(a.state.AdminUsername, target, extra...)
 }
 
 func printInfo(info azure.Info) {

@@ -1,0 +1,10 @@
+---
+# Auth key is read from the environment so it never appears on the command line
+# or in the repo. Rover passes TS_AUTHKEY through to ansible-playbook.
+tailscale_authkey: "{{ lookup('env', 'TS_AUTHKEY') | default('', true) }}"
+
+# Stable node name in the tailnet (MagicDNS -> <hostname>.<tailnet>.ts.net).
+tailscale_hostname: "rover-vm"
+
+# Tags applied to the node. The auth key MUST be generated with these tags.
+tailscale_tags: "tag:rover"
