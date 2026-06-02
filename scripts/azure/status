@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# rover status [--json]
+#
+# Prints the current Rover VM power state and connection info.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON=1 ;;
+    *) die "unknown argument: $arg (usage: status [--json])" ;;
+  esac
+done
+
+az_init
+
+if [ "${JSON}" = "1" ]; then
+  emit_connection_info
+  exit 0
+fi
+
+info="$(emit_connection_info)"
+get() { printf '%s' "$info" | sed -E "s/.*\"$1\":\"?([^\",}]*)\"?.*/\1/"; }
+
+exists="$(printf '%s' "$info" | grep -o '"exists":[a-z]*' | cut -d: -f2)"
+if [ "${exists}" = "false" ]; then
+  echo "Rover VM: not provisioned"
+  echo "  resource group: ${ROVER_RESOURCE_GROUP}"
+  echo "  region:         ${ROVER_LOCATION}"
+  echo "Run 'rover up [small|medium|large]' to create one."
+  exit 0
+fi
+
+echo "Rover VM status"
+echo "  name:        $(get vmName)"
+echo "  power:       $(get powerState)"
+echo "  size:        $(get vmSize)"
+echo "  region:      $(get location)"
+echo "  public IP:   $(get publicIp)"
+echo "  fqdn:        $(get fqdn)"
+echo "  private IP:  $(get privateIp)"
+echo "  ssh target:  $(get sshTarget)"

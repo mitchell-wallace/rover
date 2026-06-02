@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# rover down [--delete] [--yes] [--json]
+#
+# Default: deallocate the VM (stops compute billing; disk + public IP remain
+# and continue to incur small charges).
+# --delete: delete the entire resource group (VM, disks, IP, network). This is
+#           destructive and removes persistent disks. Requires confirmation.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+DELETE=0
+ASSUME_YES=0
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    --delete) DELETE=1 ;;
+    --yes|-y) ASSUME_YES=1 ;;
+    --json) JSON=1 ;;
+    *) die "unknown argument: $arg (usage: down [--delete] [--yes] [--json])" ;;
+  esac
+done
+
+az_init
+
+if ! rg_exists || [ "$(vm_power_state)" = "absent" ]; then
+  warn "No Rover VM found in ${ROVER_RESOURCE_GROUP}; nothing to bring down."
+  [ "${JSON}" = "1" ] && emit_connection_info
+  exit 0
+fi
+
+if [ "${DELETE}" = "1" ]; then
+  warn "DESTRUCTIVE: this deletes resource group '${ROVER_RESOURCE_GROUP}' including"
+  warn "the VM, OS/data disks, and public IP. Persistent data will be lost."
+  if [ "${ASSUME_YES}" != "1" ]; then
+    read -r -p "Type the resource group name to confirm deletion: " confirm
+    [ "${confirm}" = "${ROVER_RESOURCE_GROUP}" ] || die "confirmation did not match; aborting."
+  fi
+  log "Deleting resource group ${ROVER_RESOURCE_GROUP}..."
+  azx group delete --name "${ROVER_RESOURCE_GROUP}" --yes -o none
+  log "Resource group deleted. All Rover resources removed."
+else
+  log "Deallocating ${ROVER_VM_NAME} (stops compute billing)..."
+  azx vm deallocate -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+  log "VM deallocated."
+  warn "Cost note: the OS disk and static public IP still exist and incur small charges."
+  warn "To remove everything and stop all charges: rover down --delete"
+  log "To resume later: rover up"
+fi
+
+[ "${JSON}" = "1" ] && emit_connection_info
+exit 0

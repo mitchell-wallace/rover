@@ -1,0 +1,15 @@
+---
+# Rover host configuration. Prepares a fresh Ubuntu VM for Dune usage.
+# Run via the Rover CLI (`rover provision`) which builds an ad-hoc inventory
+# pointing at the live VM, or manually:
+#
+#   ansible-playbook -i '<host>,' -u <admin> --private-key <key> playbook.yml
+#
+- name: Configure Rover VM for Dune
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    target_user: "{{ ansible_user | default(ansible_env.USER) }}"
+  roles:
+    - dune

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# rover up [small|medium|large] [--json]
+#
+# Provisions (or re-deploys) the single Rover-managed VM via Bicep.
+# Enforces one active VM at a time: refuses if a VM already exists with a
+# different size unless you bring it down first.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+SIZE="small"
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    small|medium|large) SIZE="$arg" ;;
+    --json) JSON=1 ;;
+    *) die "unknown argument: $arg (usage: up [small|medium|large] [--json])" ;;
+  esac
+done
+
+az_init
+
+[ -f "${ROVER_SSH_PUBKEY}" ] || die "SSH public key not found: ${ROVER_SSH_PUBKEY} (generate one with: ssh-keygen -t ed25519)"
+
+# Enforce one active VM at a time.
+state="$(vm_power_state)"
+if [ "${state}" != "absent" ]; then
+  existing_size="$(azx vm show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" --query 'hardwareProfile.vmSize' -o tsv 2>/dev/null || echo '')"
+  warn "A Rover VM already exists: ${ROVER_VM_NAME} (${existing_size}, ${state})."
+  warn "Rover manages one VM at a time. Re-running 'up ${SIZE}' will redeploy/resize it in place."
+fi
+
+log "Cost notice: starting a VM incurs Azure compute charges while it runs."
+log "Deploying ${ROVER_VM_NAME} (${SIZE}) into ${ROVER_RESOURCE_GROUP} @ ${ROVER_LOCATION}..."
+
+if ! rg_exists; then
+  log "Creating resource group ${ROVER_RESOURCE_GROUP}..."
+  azx group create --name "${ROVER_RESOURCE_GROUP}" --location "${ROVER_LOCATION}" -o none
+fi
+
+PUBKEY_CONTENT="$(cat "${ROVER_SSH_PUBKEY}")"
+
+azx deployment group create \
+  --resource-group "${ROVER_RESOURCE_GROUP}" \
+  --name "${ROVER_DEPLOYMENT_NAME}" \
+  --template-file "${ROVER_BICEP}" \
+  --parameters \
+    location="${ROVER_LOCATION}" \
+    vmName="${ROVER_VM_NAME}" \
+    adminUsername="${ROVER_ADMIN_USER}" \
+    sshPublicKey="${PUBKEY_CONTENT}" \
+    size="${SIZE}" \
+  -o none
+
+log "Deployment complete."
+
+if [ "${JSON}" = "1" ]; then
+  emit_connection_info
+else
+  info="$(emit_connection_info)"
+  target="$(printf '%s' "$info" | sed -E 's/.*"sshTarget":"([^"]*)".*/\1/')"
+  log "VM is up. Next steps:"
+  echo "  rover provision        # configure the host with Ansible"
+  echo "  rover ssh              # connect (or: ssh ${target})"
+  echo "  rover status           # show power state and connection info"
+  echo "  rover down             # deallocate to stop compute billing"
+fi

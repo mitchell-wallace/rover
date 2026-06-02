@@ -1,0 +1,25 @@
+# Managed by Rover (Ansible). Edits may be overwritten on re-provision.
+
+# Powerlevel10k instant prompt.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+# Skip the interactive configuration wizard on first launch.
+export POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
+
+# History.
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt SHARE_HISTORY HIST_IGNORE_DUPS
+
+# Completion.
+autoload -Uz compinit && compinit -u
+
+# Path: include user-local bins (dune installs here).
+export PATH="$HOME/.local/bin:$PATH"
+
+# Theme.
+source "$HOME/.powerlevel10k/powerlevel10k.zsh-theme"
+[[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh

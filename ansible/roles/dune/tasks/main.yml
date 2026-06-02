@@ -1,0 +1,153 @@
+---
+# All tasks are idempotent: re-running the playbook converges without churn.
+
+- name: Wait for cloud-init to finish first-boot prep
+  ansible.builtin.wait_for:
+    path: /var/lib/rover-cloud-init-done
+    timeout: 300
+  # Non-fatal: if cloud-init used a different marker, continue anyway.
+  failed_when: false
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base + quality-of-life packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+
+# --- Docker Engine (official repo) -----------------------------------------
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Add Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Add Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    filename: docker
+    state: present
+
+- name: Install Docker Engine and plugins
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Ensure Docker service is enabled and running
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ target_user }}"
+    groups: docker
+    append: true
+
+# Pick up the new docker group membership for subsequent become_user tasks.
+- name: Reset connection so group membership applies
+  ansible.builtin.meta: reset_connection
+
+# --- GitHub CLI (gh) -------------------------------------------------------
+- name: Add GitHub CLI GPG key
+  ansible.builtin.get_url:
+    url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+    dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    mode: "0644"
+
+- name: Add GitHub CLI apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+    filename: github-cli
+    state: present
+
+- name: Install gh
+  ansible.builtin.apt:
+    name: gh
+    state: present
+    update_cache: true
+
+# --- lazydocker (GitHub release) -------------------------------------------
+- name: Install lazydocker
+  ansible.builtin.unarchive:
+    src: "https://github.com/jesseduffield/lazydocker/releases/download/v{{ lazydocker_version }}/lazydocker_{{ lazydocker_version }}_Linux_{{ 'x86_64' if ansible_architecture == 'x86_64' else 'arm64' }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - lazydocker
+    mode: "0755"
+    creates: /usr/local/bin/lazydocker
+
+# --- gitui (GitHub release) ------------------------------------------------
+- name: Install gitui
+  ansible.builtin.unarchive:
+    src: "https://github.com/extrawurst/gitui/releases/download/v{{ gitui_version }}/gitui-linux-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    mode: "0755"
+    creates: /usr/local/bin/gitui
+
+# --- zsh + Powerlevel10k ---------------------------------------------------
+- name: Clone Powerlevel10k
+  become_user: "{{ target_user }}"
+  ansible.builtin.git:
+    repo: "{{ powerlevel10k_repo }}"
+    dest: "{{ user_home }}/.powerlevel10k"
+    depth: 1
+    version: master
+    update: false
+
+- name: Install managed .zshrc
+  become_user: "{{ target_user }}"
+  ansible.builtin.template:
+    src: zshrc.j2
+    dest: "{{ user_home }}/.zshrc"
+    mode: "0644"
+
+- name: Set zsh as the default shell
+  ansible.builtin.user:
+    name: "{{ target_user }}"
+    shell: /usr/bin/zsh
+
+# --- Verify Docker works for the user --------------------------------------
+- name: Verify Docker works for the user
+  become_user: "{{ target_user }}"
+  ansible.builtin.command: docker run --rm hello-world
+  register: docker_hello
+  changed_when: false
+
+- name: Show Docker verification result
+  ansible.builtin.debug:
+    msg: "Docker verified for {{ target_user }}: {{ 'Hello from Docker' in docker_hello.stdout }}"
+
+# --- Dune ------------------------------------------------------------------
+- name: Check whether dune is already installed
+  become_user: "{{ target_user }}"
+  ansible.builtin.command: bash -lc "command -v dune"
+  register: dune_check
+  changed_when: false
+  failed_when: false
+
+- name: Install dune
+  become_user: "{{ target_user }}"
+  ansible.builtin.shell: "curl -fsSL {{ dune_install_url }} | bash"
+  args:
+    executable: /bin/bash
+  when: dune_check.rc != 0
+  changed_when: true

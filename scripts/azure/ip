@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# rover ip [--json]
+#
+# Connection-info helper. Without --json, prints just the SSH target.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON=1 ;;
+    *) die "unknown argument: $arg (usage: ip [--json])" ;;
+  esac
+done
+
+az_init
+
+info="$(emit_connection_info)"
+if [ "${JSON}" = "1" ]; then
+  printf '%s\n' "$info"
+  exit 0
+fi
+
+exists="$(printf '%s' "$info" | grep -o '"exists":[a-z]*' | cut -d: -f2)"
+[ "${exists}" = "false" ] && die "no Rover VM provisioned"
+printf '%s\n' "$info" | sed -E 's/.*"sshTarget":"([^"]*)".*/\1/'

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# rover ssh [-- extra ssh args...]
+#
+# Opens an interactive SSH session to the Rover VM using the configured key.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+az_init
+
+info="$(emit_connection_info)"
+exists="$(printf '%s' "$info" | grep -o '"exists":[a-z]*' | cut -d: -f2)"
+[ "${exists}" = "false" ] && die "no Rover VM provisioned; run 'rover up' first"
+
+power="$(printf '%s' "$info" | sed -E 's/.*"powerState":"([^"]*)".*/\1/')"
+case "${power}" in
+  *running*) ;;
+  *) die "VM is '${power}', not running. Run 'rover up' to start it." ;;
+esac
+
+target="$(printf '%s' "$info" | sed -E 's/.*"sshTarget":"([^"]*)".*/\1/')"
+log "Connecting to ${target}..."
+
+ssh_opts=(-o StrictHostKeyChecking=accept-new)
+[ -f "${ROVER_SSH_KEY}" ] && ssh_opts+=(-i "${ROVER_SSH_KEY}")
+
+exec ssh "${ssh_opts[@]}" "${target}" "$@"
