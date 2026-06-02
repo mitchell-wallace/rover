@@ -71,9 +71,9 @@ func doUp(a *appContext, size string, assumeYes bool) error {
 	return nil
 }
 
-// doDown deallocates the VM, or deletes the resource group when delete is true.
-func doDown(a *appContext, delete, assumeYes bool) error {
-	if delete {
+// doDown deallocates the VM, or deletes the resource group when del is true.
+func doDown(a *appContext, del, assumeYes bool) error {
+	if del {
 		ok := assumeYes
 		if !ok {
 			var err error
@@ -93,12 +93,12 @@ func doDown(a *appContext, delete, assumeYes bool) error {
 		ui.Info("Deallocating VM to stop compute billing (disk + IP remain).")
 	}
 
-	info, err := a.azure.Down(delete, true)
+	info, err := a.azure.Down(del, true)
 	if err != nil {
 		return err
 	}
 
-	if delete {
+	if del {
 		a.state.Connection = stateZeroConn()
 		a.state.AnsibleApplied = false
 		_ = a.state.Save()

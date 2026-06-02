@@ -18,7 +18,7 @@ The disk is independent of the compute size, so it (and your data) is preserved
 when you change size with 'rover up'. Azure disks can only grow, never shrink.
 The VM is briefly deallocated during the resize and restarted if it was running.`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			gb, err := strconv.Atoi(args[0])
 			if err != nil {
 				return err

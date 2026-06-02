@@ -17,7 +17,7 @@ remain and continue to incur small charges.
 --delete: delete the entire resource group (VM, disks, IP, network). Destructive
 and removes persistent data. Requires confirmation or --yes.`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			a, err := loadContext()
 			if err != nil {
 				return err

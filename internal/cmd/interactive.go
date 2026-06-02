@@ -66,7 +66,7 @@ func runInteractive() error {
 		case "status":
 			err = doStatus(a)
 		case "up":
-			var size string = a.state.Size
+			size := a.state.Size
 			if size == "" {
 				size = "small"
 			}

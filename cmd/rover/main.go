@@ -1,3 +1,4 @@
+// Command rover is the Rover CLI entrypoint; it delegates to internal/cmd.
 package main
 
 import (

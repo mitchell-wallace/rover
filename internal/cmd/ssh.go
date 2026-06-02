@@ -6,7 +6,7 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "ssh [-- extra ssh args]",
 		Short: "Open an SSH session to the Rover VM",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			a, err := loadContext()
 			if err != nil {
 				return err

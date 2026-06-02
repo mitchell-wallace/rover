@@ -17,6 +17,9 @@ import (
 	"path/filepath"
 )
 
+// Files is the embedded asset tree (scripts/, infra/, ansible/) that Rover
+// materializes into the user cache directory on first use.
+//
 //go:embed all:scripts all:infra all:ansible
 var Files embed.FS
 
@@ -72,7 +75,7 @@ func contentHash() (string, error) {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(h, "%s\x00%x\x00", path, data)
+		_, _ = fmt.Fprintf(h, "%s\x00%x\x00", path, data)
 		return nil
 	})
 	if err != nil {

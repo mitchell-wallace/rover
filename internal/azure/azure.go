@@ -107,9 +107,9 @@ func (c *Client) Up(size string) (Info, error) {
 
 // Down deallocates the VM, or deletes the whole resource group when delete is
 // true. Confirmation is the caller's responsibility (pass yes=true).
-func (c *Client) Down(delete, yes bool) (Info, error) {
+func (c *Client) Down(del, yes bool) (Info, error) {
 	args := []string{}
-	if delete {
+	if del {
 		args = append(args, "--delete")
 	}
 	if yes {

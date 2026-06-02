@@ -11,7 +11,7 @@ func init() {
 		Use:   "version",
 		Short: "Print the Rover version",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			fmt.Println(version)
 		},
 	}

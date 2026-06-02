@@ -17,7 +17,7 @@ func init() {
 		Long: "Walk through the handful of choices Rover needs — region, default size, " +
 			"admin username, and SSH key — then write the config file.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			st, err := loadStateOnly()
 			if err != nil {
 				return err

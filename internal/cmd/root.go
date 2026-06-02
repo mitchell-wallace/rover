@@ -25,7 +25,7 @@ menu, or use the subcommands (up/down/status/ssh/provision/doctor) directly.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	// Bare `rover` launches the interactive menu.
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		return runInteractive()
 	},
 }

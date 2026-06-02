@@ -1,10 +1,10 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
-    - gofmt
-    - goimports
     - govet
     - ineffassign
     - misspell
@@ -13,7 +13,11 @@ linters:
     - unconvert
     - unused
 
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0

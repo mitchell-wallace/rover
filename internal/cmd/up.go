@@ -15,7 +15,7 @@ func init() {
 		Long:      "Create or redeploy the single Rover-managed VM at the chosen size.",
 		ValidArgs: sizes.Order,
 		Args:      cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			a, err := loadContext()
 			if err != nil {
 				return err

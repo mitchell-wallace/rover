@@ -17,7 +17,7 @@ func init() {
 		Use:   "config",
 		Short: "Show or edit Rover configuration",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if showPath {
 				p, err := config.Path()
 				if err != nil {

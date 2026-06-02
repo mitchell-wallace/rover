@@ -18,7 +18,7 @@ func init() {
 		Use:   "doctor",
 		Short: "Check that prerequisites for Rover are installed/configured",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return doDoctor()
 		},
 	}

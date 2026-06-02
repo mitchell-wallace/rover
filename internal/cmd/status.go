@@ -7,7 +7,7 @@ func init() {
 		Use:   "status",
 		Short: "Show the VM power state and connection info",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			a, err := loadContext()
 			if err != nil {
 				return err

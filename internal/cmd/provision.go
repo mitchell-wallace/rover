@@ -8,7 +8,7 @@ func init() {
 		Short: "Configure the VM for Dune with Ansible",
 		Long:  "Run the Ansible playbook against the live VM to install Docker, dune, zsh, and tooling.",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			a, err := loadContext()
 			if err != nil {
 				return err
