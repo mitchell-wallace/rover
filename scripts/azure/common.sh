@@ -85,6 +85,22 @@ vm_power_state() {
     -o tsv 2>/dev/null || echo "unknown"
 }
 
+# Echoes the OS disk size in whole GiB, or empty if absent. diskSizeGb is null
+# until a disk is explicitly resized, so derive it from diskSizeBytes when
+# needed (1 GiB = 1073741824 bytes).
+os_disk_gb() {
+  local gb bytes
+  gb="$(azx disk show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}-osdisk" --query 'diskSizeGb' -o tsv 2>/dev/null || echo '')"
+  if [ -n "${gb}" ] && [ "${gb}" != "None" ]; then
+    echo "${gb}"
+    return 0
+  fi
+  bytes="$(azx disk show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}-osdisk" --query 'diskSizeBytes' -o tsv 2>/dev/null || echo '')"
+  if [ -n "${bytes}" ] && [ "${bytes}" != "None" ]; then
+    echo $(( bytes / 1073741824 ))
+  fi
+}
+
 # Emits connection info as JSON to stdout. Reads from live Azure resources so it
 # works even if the local state file is missing.
 emit_connection_info() {
@@ -96,7 +112,7 @@ emit_connection_info() {
     return 0
   fi
   vmsize="$(azx vm show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" --query 'hardwareProfile.vmSize' -o tsv 2>/dev/null || echo '')"
-  diskgb="$(azx disk show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}-osdisk" --query 'diskSizeGb' -o tsv 2>/dev/null || echo '')"
+  diskgb="$(os_disk_gb)"
   pubip="$(azx vm list-ip-addresses -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" \
     --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' -o tsv 2>/dev/null || echo '')"
   # FQDN lives on the public-IP resource (named <vm>-pip by our Bicep), not on

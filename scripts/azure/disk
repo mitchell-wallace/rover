@@ -25,7 +25,8 @@ az_init
 vm_exists || die "no Rover VM provisioned; run 'rover up' first"
 
 DISK_NAME="${ROVER_VM_NAME}-osdisk"
-CUR_GB="$(azx disk show -g "${ROVER_RESOURCE_GROUP}" -n "${DISK_NAME}" --query diskSizeGb -o tsv 2>/dev/null || echo 0)"
+CUR_GB="$(os_disk_gb)"
+CUR_GB="${CUR_GB:-0}"
 
 if [ "${NEW_GB}" -lt "${CUR_GB}" ]; then
   die "OS disks cannot shrink (current ${CUR_GB} GiB, requested ${NEW_GB} GiB)."
