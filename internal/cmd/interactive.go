@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/huh"
+	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
@@ -18,6 +19,18 @@ func runInteractive() error {
 			return err
 		}
 		return doStatus(a)
+	}
+
+	// First run (no state file yet): walk through guided setup before the menu.
+	if configured, _ := config.Exists(); !configured {
+		st, err := loadStateOnly()
+		if err != nil {
+			return err
+		}
+		if err := doInit(st); err != nil {
+			return err
+		}
+		fmt.Println()
 	}
 
 	a, err := loadContext()
@@ -40,6 +53,7 @@ func runInteractive() error {
 				huh.NewOption("Down (deallocate)", "down"),
 				huh.NewOption("Delete all resources", "delete"),
 				huh.NewOption("Config", "config"),
+				huh.NewOption("Setup (re-run init)", "init"),
 				huh.NewOption("Quit", "quit"),
 			).
 			Value(&action).
@@ -76,6 +90,8 @@ func runInteractive() error {
 			err = doDown(a, true, false)
 		case "config":
 			err = editConfig(a.state)
+		case "init":
+			err = doInit(a.state)
 		case "quit":
 			return nil
 		}

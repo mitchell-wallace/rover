@@ -53,6 +53,42 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	}
 }
 
+func TestExistsTracksStateFile(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if ok, err := Exists(); err != nil || ok {
+		t.Fatalf("Exists() before save = %v (err %v), want false", ok, err)
+	}
+	if err := Default().Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if ok, err := Exists(); err != nil || !ok {
+		t.Fatalf("Exists() after save = %v (err %v), want true", ok, err)
+	}
+}
+
+func TestValidateAdminUsername(t *testing.T) {
+	valid := []string{"rover", "mitchell", "dev_user", "a1", "_svc", "user-x"}
+	for _, name := range valid {
+		if err := ValidateAdminUsername(name); err != nil {
+			t.Errorf("ValidateAdminUsername(%q) = %v, want nil", name, err)
+		}
+	}
+	invalid := []string{"", "admin", "root", "ADMIN", "1user", "-bad", "has space", "trailing."}
+	for _, name := range invalid {
+		if err := ValidateAdminUsername(name); err == nil {
+			t.Errorf("ValidateAdminUsername(%q) = nil, want error", name)
+		}
+	}
+}
+
+func TestDefaultAdminUsernameAlwaysValid(t *testing.T) {
+	// Default() must never hand back a username Azure would reject, regardless
+	// of the local login name.
+	if err := ValidateAdminUsername(Default().AdminUsername); err != nil {
+		t.Errorf("Default().AdminUsername invalid: %v", err)
+	}
+}
+
 func TestEnvRendersRoverVars(t *testing.T) {
 	st := Default()
 	st.Subscription = "sub-1"

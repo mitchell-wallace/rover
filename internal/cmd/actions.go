@@ -7,6 +7,7 @@ import (
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
+	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/mitchell-wallace/rover/internal/ui"
@@ -25,6 +26,9 @@ func (a *appContext) syncConnection(info azure.Info) {
 func doUp(a *appContext, size string, assumeYes bool) error {
 	if err := sizes.Validate(size); err != nil {
 		return err
+	}
+	if err := config.ValidateAdminUsername(a.state.AdminUsername); err != nil {
+		return fmt.Errorf("%w (fix with 'rover config --edit')", err)
 	}
 	profile, _ := sizes.Get(size)
 	ui.Info("Selected size: %s", profile.Describe())

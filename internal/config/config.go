@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
+	"strings"
 )
 
 // Connection holds the last known reachability info for the VM. It is a cache
@@ -70,7 +72,9 @@ func (s *State) TSTags() string {
 // Default returns a State pre-populated with sane defaults for a first run.
 func Default() *State {
 	admin := "rover"
-	if u, err := user.Current(); err == nil && u.Username != "" {
+	// Prefer the local username, but only if Azure would accept it; otherwise
+	// fall back to "rover" so a reserved/odd login name doesn't fail late.
+	if u, err := user.Current(); err == nil && ValidateAdminUsername(u.Username) == nil {
 		admin = u.Username
 	}
 	return &State{
@@ -97,6 +101,61 @@ func defaultSSHKey() string {
 		}
 	}
 	return filepath.Join(home, ".ssh", "id_ed25519.pub")
+}
+
+// Exists reports whether a Rover state file has been written yet. A fresh
+// install has none — callers use this to drive the guided first run.
+func Exists() (bool, error) {
+	p, err := Path()
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(p)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// adminUsernamePattern mirrors Azure's Linux admin username rule: start with a
+// letter or underscore, then letters/digits/hyphen/underscore.
+var adminUsernamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
+
+// reservedAdminUsernames are names Azure rejects outright for VM admin users.
+// Source: Azure VM "disallowed values for adminUsername".
+var reservedAdminUsernames = map[string]bool{
+	"administrator": true, "admin": true, "user": true, "user1": true,
+	"test": true, "user2": true, "test1": true, "user3": true, "admin1": true,
+	"1": true, "123": true, "a": true, "actuser": true, "adm": true,
+	"admin2": true, "aspnet": true, "backup": true, "console": true,
+	"david": true, "guest": true, "john": true, "owner": true, "root": true,
+	"server": true, "sql": true, "support": true, "support_388945a0": true,
+	"sys": true, "test2": true, "test3": true, "user4": true, "user5": true,
+}
+
+// ValidateAdminUsername returns an error if name is unusable as an Azure Linux
+// VM admin username. Azure rejects reserved names and enforces a format, and a
+// mismatch only surfaces late (at deploy time) otherwise.
+func ValidateAdminUsername(name string) error {
+	if name == "" {
+		return fmt.Errorf("admin username is empty")
+	}
+	if len(name) > 64 {
+		return fmt.Errorf("admin username %q is too long (max 64 characters)", name)
+	}
+	if strings.HasSuffix(name, ".") {
+		return fmt.Errorf("admin username %q cannot end with a period", name)
+	}
+	if reservedAdminUsernames[strings.ToLower(name)] {
+		return fmt.Errorf("admin username %q is reserved by Azure; pick another", name)
+	}
+	if !adminUsernamePattern.MatchString(name) {
+		return fmt.Errorf("admin username %q is invalid: start with a letter or underscore and use only letters, digits, hyphens, or underscores", name)
+	}
+	return nil
 }
 
 // Path returns the location of the state file (honours XDG via UserConfigDir).

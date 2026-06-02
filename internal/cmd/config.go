@@ -67,7 +67,8 @@ func editConfig(st *config.State) error {
 		huh.NewInput().Title("VM name").Value(&st.VMName),
 		huh.NewSelect[string]().Title("Default size").
 			Options(huh.NewOptions(sizes.Order...)...).Value(&st.Size),
-		huh.NewInput().Title("Admin username").Value(&st.AdminUsername),
+		huh.NewInput().Title("Admin username").Value(&st.AdminUsername).
+			Validate(config.ValidateAdminUsername),
 		huh.NewInput().Title("SSH public key path").Value(&st.SSHPublicKey),
 		huh.NewInput().Title("Tailscale hostname (blank = VM name)").Value(&st.TailscaleHostname),
 		huh.NewInput().Title("Tailscale tags").Value(&st.TailscaleTags),

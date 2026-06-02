@@ -59,7 +59,9 @@ callers.
 
 ## Prerequisites
 
-Run `rover doctor` to check all of these at once.
+Run `rover doctor` to check all of these at once. When run in a terminal, it
+offers to fix what it can — generate a missing SSH key, run `az login`, or
+`az bicep install`.
 
 - **Azure CLI** (`az`) — https://learn.microsoft.com/cli/azure/install-azure-cli
 - **Bicep** — `az bicep install`
@@ -96,8 +98,19 @@ rover config --edit     # set "SSH public key path" to ~/.ssh/id_ed25519.pub
 
 ## Creating config
 
-Rover stores everything in `~/.config/rover/state.json`. Defaults are applied on
-first run; view or edit them:
+Rover stores everything in `~/.config/rover/state.json`. On a fresh install the
+quickest path is the guided setup:
+
+```sh
+rover init              # walk through region, size, admin user, SSH key
+```
+
+`rover init` validates the admin username (Azure rejects reserved names like
+`admin`/`root`) and offers to generate an ed25519 key pair if the chosen public
+key doesn't exist yet. Running bare `rover` on a brand-new install launches the
+same flow automatically before showing the menu.
+
+Defaults are applied on first run; view or edit them directly any time:
 
 ```sh
 rover config            # show current config
