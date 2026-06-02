@@ -49,6 +49,19 @@ azx() {
   az "$@" "${az_args[@]}"
 }
 
+# Ensure the resource providers Rover needs are registered (one-time per
+# subscription). Registration is async; we kick it off and continue.
+ensure_providers() {
+  local p state
+  for p in Microsoft.Compute Microsoft.Network; do
+    state="$(azx provider show -n "$p" --query registrationState -o tsv 2>/dev/null || echo Unknown)"
+    if [ "$state" != "Registered" ]; then
+      log "Registering resource provider $p (one-time)..."
+      azx provider register -n "$p" --wait -o none 2>/dev/null || azx provider register -n "$p" -o none || true
+    fi
+  done
+}
+
 rg_exists() {
   [ "$(azx group exists --name "${ROVER_RESOURCE_GROUP}" -o tsv)" = "true" ]
 }
@@ -81,8 +94,10 @@ emit_connection_info() {
   vmsize="$(azx vm show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" --query 'hardwareProfile.vmSize' -o tsv 2>/dev/null || echo '')"
   pubip="$(azx vm list-ip-addresses -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" \
     --query '[0].virtualMachine.network.publicIpAddresses[0].ipAddress' -o tsv 2>/dev/null || echo '')"
-  fqdn="$(azx vm list-ip-addresses -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" \
-    --query '[0].virtualMachine.network.publicIpAddresses[0].fqdn' -o tsv 2>/dev/null || echo '')"
+  # FQDN lives on the public-IP resource (named <vm>-pip by our Bicep), not on
+  # the VM's ip-addresses view.
+  fqdn="$(azx network public-ip show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}-pip" \
+    --query 'dnsSettings.fqdn' -o tsv 2>/dev/null || echo '')"
   privip="$(azx vm list-ip-addresses -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" \
     --query '[0].virtualMachine.network.privateIpAddresses[0]' -o tsv 2>/dev/null || echo '')"
 

@@ -33,6 +33,8 @@ fi
 log "Cost notice: starting a VM incurs Azure compute charges while it runs."
 log "Deploying ${ROVER_VM_NAME} (${SIZE}) into ${ROVER_RESOURCE_GROUP} @ ${ROVER_LOCATION}..."
 
+ensure_providers
+
 if ! rg_exists; then
   log "Creating resource group ${ROVER_RESOURCE_GROUP}..."
   azx group create --name "${ROVER_RESOURCE_GROUP}" --location "${ROVER_LOCATION}" -o none
