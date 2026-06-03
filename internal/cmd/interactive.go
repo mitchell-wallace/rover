@@ -129,14 +129,14 @@ func normalizeSizeForFamily(family, size string) string {
 	if _, ok := sizes.Get(family, size); ok {
 		return size
 	}
-	if avail := sizes.SizesFor(family); len(avail) > 0 {
+	if avail := sizes.Available(family); len(avail) > 0 {
 		return avail[0]
 	}
 	return size
 }
 
 func sizeOptions(family string) []huh.Option[string] {
-	avail := sizes.SizesFor(family)
+	avail := sizes.Available(family)
 	opts := make([]huh.Option[string], 0, len(avail))
 	for _, name := range avail {
 		p, _ := sizes.Get(family, name)

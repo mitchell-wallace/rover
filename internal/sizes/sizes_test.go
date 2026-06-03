@@ -4,7 +4,7 @@ import "testing"
 
 func TestMatrixWellFormed(t *testing.T) {
 	for _, fam := range Families {
-		sizesForFam := SizesFor(fam)
+		sizesForFam := Available(fam)
 		if len(sizesForFam) == 0 {
 			t.Errorf("family %q offers no sizes", fam)
 		}

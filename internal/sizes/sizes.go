@@ -83,8 +83,8 @@ func Get(family, size string) (Profile, bool) {
 	return p, true
 }
 
-// SizesFor returns the size names offered by a family, in canonical order.
-func SizesFor(family string) []string {
+// Available returns the size names offered by a family, in canonical order.
+func Available(family string) []string {
 	family = NormalizeFamily(family)
 	out := make([]string, 0, len(Order))
 	for _, s := range Order {
@@ -110,7 +110,7 @@ func Validate(family, size string) error {
 	}
 	if _, ok := Get(family, size); !ok {
 		return fmt.Errorf("size %q is not available for the %q family (choose one of: %s)",
-			size, NormalizeFamily(family), strings.Join(SizesFor(family), ", "))
+			size, NormalizeFamily(family), strings.Join(Available(family), ", "))
 	}
 	return nil
 }
