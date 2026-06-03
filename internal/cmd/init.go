@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/mitchell-wallace/rover/internal/config"
+	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -46,9 +47,14 @@ func doInit(st *config.State) error {
 				Description("Where the VM lives. Must have VM core quota for your subscription.").
 				Value(&st.Location),
 			huh.NewSelect[string]().
+				Title("Default family").
+				Description("burstable (cheap, CPU-credit) · balanced (sustained CPU) · ramheavy (memory-optimized).").
+				Options(familyOptions()...).
+				Value(&st.Family),
+			huh.NewSelect[string]().
 				Title("Default size").
 				Description("Compute envelope. Disk is independent and persists across resizes.").
-				Options(sizeOptions()...).
+				Options(sizeOptions(st.Fam())...).
 				Value(&st.Size),
 			huh.NewInput().
 				Title("Admin username").
@@ -68,6 +74,8 @@ func doInit(st *config.State) error {
 	if err := form.Run(); err != nil {
 		return err
 	}
+	st.Family = sizes.NormalizeFamily(st.Family)
+	st.Size = normalizeSizeForFamily(st.Family, st.Size)
 	if err := st.Save(); err != nil {
 		return err
 	}

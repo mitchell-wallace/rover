@@ -49,6 +49,7 @@ func printConfig(st *config.State) {
 	fmt.Printf("  resource group:  %s\n", st.ResourceGroup)
 	fmt.Printf("  region:          %s\n", st.Location)
 	fmt.Printf("  vm name:         %s\n", st.VMName)
+	fmt.Printf("  family:          %s\n", st.Fam())
 	fmt.Printf("  size:            %s\n", st.Size)
 	fmt.Printf("  disk:            %d GiB\n", st.DiskGB())
 	fmt.Printf("  admin username:  %s\n", st.AdminUsername)
@@ -65,6 +66,8 @@ func editConfig(st *config.State) error {
 		huh.NewInput().Title("Resource group").Value(&st.ResourceGroup),
 		huh.NewInput().Title("Region").Value(&st.Location),
 		huh.NewInput().Title("VM name").Value(&st.VMName),
+		huh.NewSelect[string]().Title("Default family").
+			Options(familyOptions()...).Value(&st.Family),
 		huh.NewSelect[string]().Title("Default size").
 			Options(huh.NewOptions(sizes.Order...)...).Value(&st.Size),
 		huh.NewInput().Title("Admin username").Value(&st.AdminUsername).
@@ -76,6 +79,8 @@ func editConfig(st *config.State) error {
 	if err := form.Run(); err != nil {
 		return err
 	}
+	st.Family = sizes.NormalizeFamily(st.Family)
+	st.Size = normalizeSizeForFamily(st.Family, st.Size)
 	if err := st.Save(); err != nil {
 		return err
 	}

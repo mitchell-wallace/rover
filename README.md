@@ -125,16 +125,24 @@ applied.
 ## Starting a VM
 
 ```sh
-rover up small          # or: rover up --size medium / rover up large
+rover up small                          # burstable (default family), small
+rover up --family ramheavy medium       # memory-optimized, medium
+rover up --family balanced --size large # general-purpose, large
 ```
 
-Compute size profiles (edit in `infra/bicep/main.bicep`):
+Compute is chosen along two axes — **family** (the hardware tier) and **size**
+(a t-shirt size within that family). Defaults to `burstable`. Edit the mapping
+in `infra/bicep/main.bicep` (mirrored in `internal/sizes/sizes.go`):
 
-| size   | SKU                | vCPU | RAM    |
-|--------|--------------------|------|--------|
-| small  | Standard_B2ls_v2   | 2    | 4 GiB  |
-| medium | Standard_B2s_v2    | 2    | 8 GiB  |
-| large  | Standard_B4s_v2    | 4    | 16 GiB |
+| size   | burstable (Ba) — cheap, CPU-credit | balanced (D) — sustained CPU | ramheavy (E) — memory-optimized |
+|--------|------------------------------------|------------------------------|---------------------------------|
+| xsmall | Standard_B2als_v2 · 2 / 4 GiB      | —                            | —                               |
+| small  | Standard_B2as_v2 · 2 / 8 GiB       | Standard_D2as_v7 · 2 / 8 GiB | Standard_E2as_v7 · 2 / 16 GiB   |
+| medium | Standard_B4als_v2 · 4 / 8 GiB      | Standard_D4as_v7 · 4 / 16 GiB| Standard_E4as_v7 · 4 / 32 GiB   |
+| large  | Standard_B4as_v2 · 4 / 16 GiB      | Standard_D8as_v7 · 8 / 32 GiB| Standard_E8as_v7 · 8 / 64 GiB   |
+
+`xsmall` is burstable-only — Azure's balanced/ramheavy families have no
+sub-2-vCPU SKU. Each family needs its own core quota in your region.
 
 Disk size is **independent of compute size** (see [Disk](#disk-storage) below) —
 changing size only swaps the CPU/RAM envelope and **preserves your disk and its
@@ -272,12 +280,12 @@ your region.
 
 ## Quota
 
-Brand-new subscriptions often have **0 core quota** for the B-series v2 family
-(`standardBsv2Family`). If `rover up` fails with `QuotaExceeded`, request an
-increase (a few cores is plenty):
+Brand-new subscriptions often have **0 core quota** for the AMD B-series v2
+family (`standardBasv2Family`). If `rover up` fails with `QuotaExceeded`, request
+an increase (a few cores is plenty):
 
 - Portal: *Subscriptions → Usage + quotas → request increase* for
-  `standardBsv2Family` in your region, **or**
+  `standardBasv2Family` in your region, **or**
 - pick a region/family where you already have quota and edit the SKUs in
   `infra/bicep/main.bicep`.
 

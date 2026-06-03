@@ -31,6 +31,7 @@ type State struct {
 	ResourceGroup  string     `json:"resourceGroup"`
 	Location       string     `json:"location"`
 	VMName         string     `json:"vmName"`
+	Family         string     `json:"family,omitempty"`
 	Size           string     `json:"size"`
 	DiskSizeGB     int        `json:"diskSizeGB"`
 	AdminUsername  string     `json:"adminUsername"`
@@ -51,6 +52,15 @@ func (s *State) DiskGB() int {
 		return 30
 	}
 	return s.DiskSizeGB
+}
+
+// Fam returns the configured compute family, defaulting to burstable so state
+// files written before families existed keep their original behavior.
+func (s *State) Fam() string {
+	if s.Family == "" {
+		return "burstable"
+	}
+	return s.Family
 }
 
 // TSHostname returns the Tailscale node name, defaulting to the VM name.
@@ -81,6 +91,7 @@ func Default() *State {
 		ResourceGroup: "rover-rg",
 		Location:      "australiaeast",
 		VMName:        "rover-vm",
+		Family:        "burstable",
 		Size:          "small",
 		DiskSizeGB:    30,
 		AdminUsername: admin,

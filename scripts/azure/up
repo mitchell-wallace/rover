@@ -9,13 +9,17 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 SIZE="small"
+FAMILY="${ROVER_FAMILY:-burstable}"
 JSON=0
-for arg in "$@"; do
-  case "$arg" in
-    small|medium|large) SIZE="$arg" ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    xsmall|small|medium|large) SIZE="$1" ;;
+    --family) shift; FAMILY="${1:-}"; [ -n "${FAMILY}" ] || die "--family needs a value" ;;
+    --family=*) FAMILY="${1#--family=}" ;;
     --json) JSON=1 ;;
-    *) die "unknown argument: $arg (usage: up [small|medium|large] [--json])" ;;
+    *) die "unknown argument: $1 (usage: up [--family burstable|balanced|ramheavy] [xsmall|small|medium|large] [--json])" ;;
   esac
+  shift
 done
 
 az_init
@@ -31,7 +35,7 @@ if [ "${state}" != "absent" ]; then
 fi
 
 log "Cost notice: starting a VM incurs Azure compute charges while it runs."
-log "Deploying ${ROVER_VM_NAME} (${SIZE}) into ${ROVER_RESOURCE_GROUP} @ ${ROVER_LOCATION}..."
+log "Deploying ${ROVER_VM_NAME} (${FAMILY}/${SIZE}) into ${ROVER_RESOURCE_GROUP} @ ${ROVER_LOCATION}..."
 
 ensure_providers
 
@@ -51,6 +55,7 @@ if ! deploy_err="$(azx deployment group create \
     vmName="${ROVER_VM_NAME}" \
     adminUsername="${ROVER_ADMIN_USER}" \
     sshPublicKey="${PUBKEY_CONTENT}" \
+    family="${FAMILY}" \
     size="${SIZE}" \
     osDiskSizeGB="${ROVER_DISK_GB}" \
   -o none 2>&1)"; then

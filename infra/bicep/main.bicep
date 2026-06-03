@@ -17,8 +17,17 @@ param adminUsername string
 @secure()
 param sshPublicKey string
 
-@description('Size profile.')
+@description('Compute family: burstable (CPU-credit), balanced (sustained CPU), or ramheavy (memory-optimized).')
 @allowed([
+  'burstable'
+  'balanced'
+  'ramheavy'
+])
+param family string = 'burstable'
+
+@description('Size profile. xsmall is only offered for the burstable family.')
+@allowed([
+  'xsmall'
   'small'
   'medium'
   'large'
@@ -33,16 +42,33 @@ param dnsLabelPrefix string = toLower('${vmName}-${uniqueString(resourceGroup().
 param osDiskSizeGB int = 30
 
 // ---------------------------------------------------------------------------
-// Compute size profiles. These map ONLY to a VM SKU — disk is intentionally
-// independent (see osDiskSizeGB) so resizing compute never touches your data.
+// Compute family × size profiles. These map ONLY to a VM SKU — disk is
+// intentionally independent (see osDiskSizeGB) so resizing compute never
+// touches your data. Keep in sync with internal/sizes/sizes.go. The matrix is
+// ragged: only burstable offers xsmall (Azure's balanced/ramheavy families
+// have no sub-2-vCPU SKU). The CLI validates the family/size combo before
+// deploying, so an unoffered combination never reaches here.
 // ---------------------------------------------------------------------------
 var vmSkus = {
-  small: 'Standard_B2ls_v2' // 2 vCPU / 4 GiB
-  medium: 'Standard_B2s_v2' // 2 vCPU / 8 GiB
-  large: 'Standard_B4s_v2' // 4 vCPU / 16 GiB
+  burstable: {
+    xsmall: 'Standard_B2als_v2' // 2 vCPU / 4 GiB
+    small: 'Standard_B2as_v2' // 2 vCPU / 8 GiB
+    medium: 'Standard_B4als_v2' // 4 vCPU / 8 GiB
+    large: 'Standard_B4as_v2' // 4 vCPU / 16 GiB
+  }
+  balanced: {
+    small: 'Standard_D2as_v7' // 2 vCPU / 8 GiB
+    medium: 'Standard_D4as_v7' // 4 vCPU / 16 GiB
+    large: 'Standard_D8as_v7' // 8 vCPU / 32 GiB
+  }
+  ramheavy: {
+    small: 'Standard_E2as_v7' // 2 vCPU / 16 GiB
+    medium: 'Standard_E4as_v7' // 4 vCPU / 32 GiB
+    large: 'Standard_E8as_v7' // 8 vCPU / 64 GiB
+  }
 }
 
-var vmSize = vmSkus[size]
+var vmSize = vmSkus[family][size]
 
 // Stable derived names.
 var nsgName = '${vmName}-nsg'

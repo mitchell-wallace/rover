@@ -116,10 +116,11 @@ Be careful with cost semantics:
 - persistent disks/IPs may still cost money
 - scripts should make that visible
 
-VM sizes:
-- small: Standard_B2ls_v2, 2 vCPU / 4 GiB.
-- medium: Standard_B2s_v2, 2 vCPU / 8 GiB.
-- large: Standard_B4s_v2, 4 vCPU / 16 GiB.
+VM compute is chosen by family × size (default family: burstable):
+- burstable (Ba, CPU-credit): xsmall B2als_v2 2/4, small B2as_v2 2/8, medium B4als_v2 4/8, large B4as_v2 4/16.
+- balanced (D, sustained CPU): small D2as_v7 2/8, medium D4as_v7 4/16, large D8as_v7 8/32.
+- ramheavy (E, memory-optimized): small E2as_v7 2/16, medium E4as_v7 4/32, large E8as_v7 8/64.
+- xsmall is burstable-only (no sub-2-vCPU SKU in the D/E families).
 
 5. Go CLI
 

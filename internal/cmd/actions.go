@@ -22,15 +22,17 @@ func (a *appContext) syncConnection(info azure.Info) {
 	_ = a.state.Save()
 }
 
-// doUp provisions/redeploys the VM at the given size.
-func doUp(a *appContext, size string, assumeYes bool) error {
-	if err := sizes.Validate(size); err != nil {
+// doUp provisions/redeploys the VM at the given family/size.
+func doUp(a *appContext, family, size string, assumeYes bool) error {
+	family = sizes.NormalizeFamily(family)
+	if err := sizes.Validate(family, size); err != nil {
 		return err
 	}
 	if err := config.ValidateAdminUsername(a.state.AdminUsername); err != nil {
 		return fmt.Errorf("%w (fix with 'rover config --edit')", err)
 	}
-	profile, _ := sizes.Get(size)
+	profile, _ := sizes.Get(family, size)
+	ui.Info("Selected family: %s", sizes.DescribeFamily(family))
 	ui.Info("Selected size: %s", profile.Describe())
 	ui.Info("Destination: %s / %s in %s as user %q (disk %d GiB)",
 		a.state.ResourceGroup, a.state.VMName, a.state.Location, a.state.AdminUsername, a.state.DiskGB())
@@ -43,7 +45,7 @@ func doUp(a *appContext, size string, assumeYes bool) error {
 
 	ok, err := ui.Confirm(
 		"Start/redeploy the Rover VM?",
-		fmt.Sprintf("This creates Azure resources and incurs compute charges while the VM runs (size %s).", size),
+		fmt.Sprintf("This creates Azure resources and incurs compute charges while the VM runs (%s %s).", family, size),
 		true,
 	)
 	if err != nil {
@@ -53,10 +55,11 @@ func doUp(a *appContext, size string, assumeYes bool) error {
 		return fmt.Errorf("aborted")
 	}
 
-	info, err := a.azure.Up(size)
+	info, err := a.azure.Up(family, size)
 	if err != nil {
 		return err
 	}
+	a.state.Family = family
 	a.state.Size = size
 	a.syncConnection(info)
 

@@ -66,17 +66,28 @@ func runInteractive() error {
 		case "status":
 			err = doStatus(a)
 		case "up":
+			family := a.state.Fam()
 			size := a.state.Size
 			if size == "" {
 				size = "small"
 			}
 			err = huh.NewSelect[string]().
-				Title("Size").
-				Options(sizeOptions()...).
-				Value(&size).
+				Title("Family").
+				Options(familyOptions()...).
+				Value(&family).
 				Run()
 			if err == nil {
-				err = doUp(a, size, false)
+				// Keep size valid for the chosen family (e.g. xsmall is
+				// burstable-only); fall back to the family's smallest.
+				size = normalizeSizeForFamily(family, size)
+				err = huh.NewSelect[string]().
+					Title("Size").
+					Options(sizeOptions(family)...).
+					Value(&size).
+					Run()
+			}
+			if err == nil {
+				err = doUp(a, family, size, false)
 			}
 		case "provision":
 			err = doProvision(a)
@@ -103,10 +114,32 @@ func runInteractive() error {
 	}
 }
 
-func sizeOptions() []huh.Option[string] {
-	opts := make([]huh.Option[string], 0, len(sizes.Order))
-	for _, name := range sizes.Order {
-		p, _ := sizes.Get(name)
+func familyOptions() []huh.Option[string] {
+	opts := make([]huh.Option[string], 0, len(sizes.Families))
+	for _, name := range sizes.Families {
+		opts = append(opts, huh.NewOption(sizes.DescribeFamily(name), name))
+	}
+	return opts
+}
+
+// normalizeSizeForFamily returns size if the family offers it, otherwise the
+// family's smallest available size. Guards cross-family edges like the
+// burstable-only xsmall tier.
+func normalizeSizeForFamily(family, size string) string {
+	if _, ok := sizes.Get(family, size); ok {
+		return size
+	}
+	if avail := sizes.SizesFor(family); len(avail) > 0 {
+		return avail[0]
+	}
+	return size
+}
+
+func sizeOptions(family string) []huh.Option[string] {
+	avail := sizes.SizesFor(family)
+	opts := make([]huh.Option[string], 0, len(avail))
+	for _, name := range avail {
+		p, _ := sizes.Get(family, name)
 		opts = append(opts, huh.NewOption(p.Describe(), name))
 	}
 	return opts

@@ -100,9 +100,9 @@ func (c *Client) stream(script string, args ...string) error {
 	return nil
 }
 
-// Up provisions/redeploys the VM at the given size and returns its info.
-func (c *Client) Up(size string) (Info, error) {
-	return c.runJSON("up", size)
+// Up provisions/redeploys the VM at the given family/size and returns its info.
+func (c *Client) Up(family, size string) (Info, error) {
+	return c.runJSON("up", "--family", family, size)
 }
 
 // Down deallocates the VM, or deletes the whole resource group when delete is
