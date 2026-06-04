@@ -144,6 +144,7 @@ rover status
 rover ssh
 rover provision
 rover doctor
+rover update
 ```
 
 Cobra-parsed commands and interactive prompts should have parity. Interactive mode should call the same underlying command/service functions as non-interactive mode.
@@ -158,6 +159,7 @@ Suggested commands:
 * `rover doctor`
 * `rover config`
 * `rover version`
+* `rover update`
 
 The CLI may invoke shell scripts for Azure operations initially, but the boundary should be clean enough that direct Azure SDK integration could replace scripts later.
 

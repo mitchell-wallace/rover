@@ -301,6 +301,14 @@ an increase (a few cores is plenty):
   Auth keys expire (max 90 days); for fully hands-off automation, a Tailscale
   OAuth client (mint keys on demand) is a future upgrade.
 
+## Updating Rover
+
+```sh
+rover update
+```
+
+Check the Rover GitHub repository for a newer version. Prints the current and latest versions. If a newer release exists, prompts for Y/n confirmation before downloading and installing it via the official install script. Use `rover update --yes` to install non-interactively.
+
 ## Development
 
 ```sh
