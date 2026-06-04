@@ -138,6 +138,15 @@ func (c *Client) SSH(extra ...string) error {
 	return c.stream("ssh", extra...)
 }
 
+// SetPublicSSH enables or disables public SSH access on the NSG.
+func (c *Client) SetPublicSSH(allowed bool) error {
+	action := "allow"
+	if !allowed {
+		action = "deny"
+	}
+	return c.stream("ssh-access", action)
+}
+
 func containsFold(s, sub string) bool {
 	return len(s) >= len(sub) && bytes.Contains(bytes.ToLower([]byte(s)), bytes.ToLower([]byte(sub)))
 }

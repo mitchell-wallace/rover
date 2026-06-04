@@ -215,15 +215,43 @@ func doProvision(a *appContext) error {
 		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
 	}
 
-	if os.Getenv("TS_AUTHKEY") != "" {
-		ui.Info("TS_AUTHKEY detected — VM will join your tailnet as %q.", a.state.TSHostname())
+	// 1. Resolve Tailscale Key (check env, then OAuth client)
+	var authKey string
+	var usingOAuth bool
+	if key := os.Getenv("TS_AUTHKEY"); key != "" {
+		authKey = key
+		ui.Info("TS_AUTHKEY detected in environment — VM will join your tailnet as %q.", a.state.TSHostname())
+	} else if a.state.HasTSOAuth() {
+		ui.Info("Generating Tailscale auth key via OAuth client for hostname %q...", a.state.TSHostname())
+		key, err := tailscale.GetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
+		if err != nil {
+			return fmt.Errorf("generate tailscale auth key: %w", err)
+		}
+		authKey = key
+		usingOAuth = true
 	} else {
-		ui.Info("TS_AUTHKEY not set — skipping Tailscale (set it to enable 'rover connect').")
+		ui.Info("Tailscale credentials not set (TS_AUTHKEY or OAuth client ID/secret) — skipping Tailscale.")
 	}
 
-	ui.Info("Provisioning %s (%s) with Ansible...", info.VMName, info.Host())
+	// If we got an auth key, temporarily set it in the environment so Ansible's lookup works.
+	if authKey != "" {
+		os.Setenv("TS_AUTHKEY", authKey)
+		defer os.Unsetenv("TS_AUTHKEY")
+	}
+
+	// 2. Decide connection host for Ansible (use Tailscale IP/DNS if already online)
+	host := info.Host()
+	tshost := a.state.TSHostname()
+	if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
+		target := peer.Target()
+		ui.Info("Tailscale connection active. Provisioning over Tailscale (%s)...", target)
+		host = target
+	} else {
+		ui.Info("Provisioning %s (%s) over public IP with Ansible...", info.VMName, host)
+	}
+
 	err = ansible.Provision(ansible.Params{
-		Host:       info.Host(),
+		Host:       host,
 		User:       a.state.AdminUsername,
 		PrivateKey: a.state.PrivateKeyPath(),
 		AssetDir:   a.assetDir,
@@ -237,7 +265,36 @@ func doProvision(a *appContext) error {
 	}
 	a.state.AnsibleApplied = true
 	a.syncConnection(info)
-	ui.Info("Provisioning complete. Connect with 'rover ssh' and run 'dune'.")
+	ui.Info("Provisioning complete.")
+
+	// 3. Verify Tailscale is active and offer to close public SSH if verified
+	if authKey != "" || usingOAuth {
+		ui.Info("Verifying Tailscale connection to VM...")
+		if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
+			ui.Info("Tailscale connection verified successfully!")
+			if !a.state.PublicSSHClosed {
+				ok, err := ui.Confirm(
+					"Close public SSH port 22?",
+					"Tailscale is verified and working. Close public SSH to secure your VM (only allow SSH over Tailscale)?",
+					true,
+				)
+				if err == nil && ok {
+					err = a.azure.SetPublicSSH(false)
+					if err == nil {
+						a.state.PublicSSHClosed = true
+						_ = a.state.Save()
+						ui.Info("Public SSH access disabled. The VM is now accessible only over Tailscale.")
+					} else {
+						ui.Warn("Failed to disable public SSH: %v", err)
+					}
+				}
+			}
+		} else {
+			ui.Warn("Tailscale connection verification failed: peer is offline or not found. Keeping public SSH open.")
+		}
+	}
+
+	ui.Info("Connect with 'rover ssh' (or 'rover connect' if Tailscale is active) and run 'dune'.")
 	return nil
 }
 

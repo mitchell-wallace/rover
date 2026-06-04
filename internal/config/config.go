@@ -41,9 +41,12 @@ type State struct {
 	AnsibleApplied bool       `json:"ansibleApplied"`
 
 	// Tailscale (optional). The auth key is never stored here — it is read from
-	// the TS_AUTHKEY environment variable at provision time.
-	TailscaleHostname string `json:"tailscaleHostname,omitempty"`
-	TailscaleTags     string `json:"tailscaleTags,omitempty"`
+	// the TS_AUTHKEY environment variable at provision time or generated via OAuth.
+	TailscaleHostname     string `json:"tailscaleHostname,omitempty"`
+	TailscaleTags         string `json:"tailscaleTags,omitempty"`
+	TailscaleClientID     string `json:"tailscaleClientId,omitempty"`
+	TailscaleClientSecret string `json:"tailscaleClientSecret,omitempty"`
+	PublicSSHClosed       bool   `json:"publicSshClosed,omitempty"`
 }
 
 // DiskGB returns the configured OS disk size, clamped to the 30 GiB minimum.
@@ -78,6 +81,47 @@ func (s *State) TSTags() string {
 	}
 	return "tag:rover"
 }
+
+// TSClientID returns the Tailscale Client ID, checking environment variables first.
+func (s *State) TSClientID() string {
+	if v := os.Getenv("TS_OAUTH_CLIENT_ID"); v != "" {
+		return v
+	}
+	return s.TailscaleClientID
+}
+
+// TSClientSecret returns the Tailscale Client Secret, checking environment variables first.
+func (s *State) TSClientSecret() string {
+	if v := os.Getenv("TS_OAUTH_CLIENT_SECRET"); v != "" {
+		return v
+	}
+	return s.TailscaleClientSecret
+}
+
+// HasTSOAuth reports whether Tailscale OAuth credentials are set.
+func (s *State) HasTSOAuth() bool {
+	return s.TSClientID() != "" && s.TSClientSecret() != ""
+}
+
+// TSTagSlice returns the Tailscale tags as a slice of strings, ensuring each starts with "tag:".
+func (s *State) TSTagSlice() []string {
+	var tags []string
+	for _, t := range strings.Fields(strings.ReplaceAll(s.TSTags(), ",", " ")) {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if !strings.HasPrefix(t, "tag:") {
+			t = "tag:" + t
+		}
+		tags = append(tags, t)
+	}
+	if len(tags) == 0 {
+		tags = append(tags, "tag:rover")
+	}
+	return tags
+}
+
 
 // Default returns a State pre-populated with sane defaults for a first run.
 func Default() *State {
@@ -211,7 +255,7 @@ func (s *State) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, append(data, '\n'), 0o644)
+	return os.WriteFile(p, append(data, '\n'), 0o600)
 }
 
 // PrivateKeyPath returns the configured private key, deriving it from the
@@ -243,5 +287,10 @@ func (s *State) Env() []string {
 	add("ROVER_SSH_PUBKEY", s.SSHPublicKey)
 	add("ROVER_SSH_KEY", s.PrivateKeyPath())
 	add("ROVER_SUBSCRIPTION", s.Subscription)
+	sshAccess := "Allow"
+	if s.PublicSSHClosed {
+		sshAccess = "Deny"
+	}
+	add("ROVER_PUBLIC_SSH_ACCESS", sshAccess)
 	return env
 }

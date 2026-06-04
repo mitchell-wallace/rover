@@ -219,11 +219,22 @@ opt-in: if you don't set `TS_AUTHKEY`, provisioning skips Tailscale entirely.
      ]
    }
    ```
-3. Generate an **auth key** (Settings → Keys → *Generate auth key*): make it
-   **Reusable** + **Ephemeral**, and attach the tag **`tag:rover`**. Ephemeral
-   means deallocated/deleted VMs auto-clean from your tailnet.
+3. Generate an **auth key** (Settings → Keys → *Generate auth key*) OR generate an **OAuth Client** (Settings → OAuth → *Generate OAuth client*):
+   * **OAuth Client (Recommended)**: Select scope `devices` with **write** access and attach the tag **`tag:rover`**. Copy the Client ID and Client Secret immediately.
+   * **Auth Key**: Make it **Reusable** + **Ephemeral**, and attach the tag **`tag:rover`**. Ephemeral means deallocated/deleted VMs auto-clean from your tailnet.
 
-**Use it:**
+**Use it (OAuth Client — recommended):**
+
+Configure your credentials once, and Rover will automatically mint single-use keys on demand:
+
+```sh
+rover config --edit       # Enter Client ID, Client Secret, and set Close Public SSH to true
+rover up small
+rover provision           # Mints auth key, joins tailnet, provisions, and locks public SSH
+rover connect             # Tailscale SSH to rover-vm
+```
+
+**Use it (Auth Key):**
 
 ```sh
 export TS_AUTHKEY=tskey-auth-xxxxxxxx     # the key you generated
@@ -236,11 +247,11 @@ rover connect                              # Tailscale SSH to rover-vm
 MagicDNS name (`<hostname>.<tailnet>.ts.net`). If it's offline it tells you to
 `rover up`; if it was never provisioned with Tailscale it falls back to a hint to
 use `rover ssh`. The node name/tags are configurable via `rover config --edit`
-(defaults: hostname = VM name, tags = `tag:rover`). The auth key is **never**
-stored on disk — it's read from `TS_AUTHKEY` at provision time only.
+(defaults: hostname = VM name, tags = `tag:rover`). The OAuth client credentials
+are saved locally in `~/.config/rover/state.json` (protected with `0600` owner-only
+permissions) so you don't need to specify them on every command.
 
-> Note: Rover keeps public SSH (port 22) open as well, so `rover ssh` always
-> works as a fallback. Locking the NSG down to Tailscale-only is a future option.
+> Note: By default, public SSH (port 22) is open as a fallback. If you enable "Close public SSH port" in your config (`rover config --edit`) or approve the prompt after a successful `rover provision` run, Rover will update the Azure NSG rule to block port 22 on the public IP, locking the VM down to Tailscale-only. Subsequent `rover provision` runs and `rover ssh` commands will automatically route over your Tailnet. If Tailscale ever breaks, running `rover up` or toggling the config will reopen public SSH.
 
 ## Running Dune remotely
 

@@ -8,7 +8,8 @@ func init() {
 		Short: "Connect to the VM over Tailscale (Tailscale SSH)",
 		Long: `Connect to the Rover VM over your tailnet using Tailscale SSH, independent of
 the Azure public IP. Requires the VM to have been provisioned with Tailscale
-(TS_AUTHKEY=<key> rover provision) and the local 'tailscale' client connected.`,
+(using TS_AUTHKEY=<key> or configured OAuth credentials during 'rover provision')
+and the local 'tailscale' client connected.`,
 		RunE: func(_ *cobra.Command, args []string) error {
 			a, err := loadContext()
 			if err != nil {

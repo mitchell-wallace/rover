@@ -58,6 +58,7 @@ if ! deploy_err="$(azx deployment group create \
     family="${FAMILY}" \
     size="${SIZE}" \
     osDiskSizeGB="${ROVER_DISK_GB}" \
+    publicSshAccess="${ROVER_PUBLIC_SSH_ACCESS:-Allow}" \
   -o none 2>&1)"; then
   printf '%s\n' "${deploy_err}" >&2
   if printf '%s' "${deploy_err}" | grep -q "QuotaExceeded"; then

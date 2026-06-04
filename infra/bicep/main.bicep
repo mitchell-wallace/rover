@@ -41,6 +41,13 @@ param dnsLabelPrefix string = toLower('${vmName}-${uniqueString(resourceGroup().
 @minValue(30)
 param osDiskSizeGB int = 30
 
+@description('Access for public SSH: Allow or Deny.')
+@allowed([
+  'Allow'
+  'Deny'
+])
+param publicSshAccess string = 'Allow'
+
 // ---------------------------------------------------------------------------
 // Compute family × size profiles. These map ONLY to a VM SKU — disk is
 // intentionally independent (see osDiskSizeGB) so resizing compute never
@@ -91,7 +98,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
         properties: {
           priority: 1000
           direction: 'Inbound'
-          access: 'Allow'
+          access: publicSshAccess
           protocol: 'Tcp'
           sourcePortRange: '*'
           sourceAddressPrefix: '*'

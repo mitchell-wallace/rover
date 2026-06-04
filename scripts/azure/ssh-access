@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# rover ssh-access [allow|deny]
+#
+# Updates the Network Security Group to allow or deny public inbound SSH on port 22.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+az_init
+
+ACCESS="Allow"
+if [ "${1:-}" = "deny" ]; then
+  ACCESS="Deny"
+fi
+
+log "Updating Network Security Group rule to set inbound public SSH to ${ACCESS}..."
+azx network nsg rule update \
+  --resource-group "${ROVER_RESOURCE_GROUP}" \
+  --nsg-name "${ROVER_VM_NAME}-nsg" \
+  --name "allow-ssh" \
+  --access "${ACCESS}" \
+  -o none
+
+log "Inbound public SSH is now ${ACCESS}."

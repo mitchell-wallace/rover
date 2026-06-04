@@ -58,6 +58,13 @@ func printConfig(st *config.State) {
 	fmt.Printf("  ansible applied: %v\n", st.AnsibleApplied)
 	fmt.Printf("  tailscale name:  %s\n", st.TSHostname())
 	fmt.Printf("  tailscale tags:  %s\n", st.TSTags())
+	fmt.Printf("  tailscale client id: %s\n", orDefault(st.TailscaleClientID, "(not set)"))
+	secretStatus := "(not set)"
+	if st.TailscaleClientSecret != "" {
+		secretStatus = "(set, masked)"
+	}
+	fmt.Printf("  tailscale secret:    %s\n", secretStatus)
+	fmt.Printf("  public ssh closed:   %v\n", st.PublicSSHClosed)
 }
 
 func editConfig(st *config.State) error {
@@ -75,6 +82,9 @@ func editConfig(st *config.State) error {
 		huh.NewInput().Title("SSH public key path").Value(&st.SSHPublicKey),
 		huh.NewInput().Title("Tailscale hostname (blank = VM name)").Value(&st.TailscaleHostname),
 		huh.NewInput().Title("Tailscale tags").Value(&st.TailscaleTags),
+		huh.NewInput().Title("Tailscale OAuth Client ID").Value(&st.TailscaleClientID),
+		huh.NewInput().Title("Tailscale OAuth Client Secret").Password(true).Value(&st.TailscaleClientSecret),
+		huh.NewConfirm().Title("Close public SSH port (only allow Tailscale SSH)").Value(&st.PublicSSHClosed),
 	))
 	if err := form.Run(); err != nil {
 		return err
