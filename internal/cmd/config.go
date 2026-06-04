@@ -83,7 +83,7 @@ func editConfig(st *config.State) error {
 		huh.NewInput().Title("Tailscale hostname (blank = VM name)").Value(&st.TailscaleHostname),
 		huh.NewInput().Title("Tailscale tags").Value(&st.TailscaleTags),
 		huh.NewInput().Title("Tailscale OAuth Client ID").Value(&st.TailscaleClientID),
-		huh.NewInput().Title("Tailscale OAuth Client Secret").Password(true).Value(&st.TailscaleClientSecret),
+		huh.NewInput().Title("Tailscale OAuth Client Secret").EchoMode(huh.EchoModePassword).Value(&st.TailscaleClientSecret),
 		huh.NewConfirm().Title("Close public SSH port (only allow Tailscale SSH)").Value(&st.PublicSSHClosed),
 	))
 	if err := form.Run(); err != nil {

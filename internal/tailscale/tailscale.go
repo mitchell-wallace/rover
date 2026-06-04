@@ -112,7 +112,7 @@ func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("oauth token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -171,7 +171,7 @@ func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("execute create key request: %w", err)
 	}
-	defer keyResp.Body.Close()
+	defer func() { _ = keyResp.Body.Close() }()
 
 	if keyResp.StatusCode != http.StatusOK && keyResp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(keyResp.Body)

@@ -235,8 +235,8 @@ func doProvision(a *appContext) error {
 
 	// If we got an auth key, temporarily set it in the environment so Ansible's lookup works.
 	if authKey != "" {
-		os.Setenv("TS_AUTHKEY", authKey)
-		defer os.Unsetenv("TS_AUTHKEY")
+		_ = os.Setenv("TS_AUTHKEY", authKey)
+		defer func() { _ = os.Unsetenv("TS_AUTHKEY") }()
 	}
 
 	// 2. Decide connection host for Ansible (use Tailscale IP/DNS if already online)

@@ -122,7 +122,6 @@ func (s *State) TSTagSlice() []string {
 	return tags
 }
 
-
 // Default returns a State pre-populated with sane defaults for a first run.
 func Default() *State {
 	admin := "rover"
