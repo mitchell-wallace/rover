@@ -171,6 +171,16 @@ func doDown(a *appContext, del, assumeYes bool) error {
 	} else {
 		ui.Info("Deallocating VM to stop compute billing (disk + IP remain).")
 	}
+	if del {
+		if current, serr := a.azure.Status(); serr == nil && current.Running() {
+			ui.Info("Running pre-delete Tailscale logout inside the VM...")
+			if err := a.azure.RunCommand(tailscaleLogoutScript()); err != nil {
+				ui.Warn("Tailscale logout inside VM failed: %v", err)
+			}
+		} else if serr != nil {
+			ui.Warn("Could not check VM state before teardown: %v", serr)
+		}
+	}
 
 	info, err := a.azure.Down(del, true)
 	if err != nil {
@@ -178,8 +188,17 @@ func doDown(a *appContext, del, assumeYes bool) error {
 	}
 
 	if del {
+		if a.state.HasTSOAuth() {
+			ui.Info("Cleaning up Rover Tailscale devices...")
+			if _, err := doTailscaleCleanup(a, true, false); err != nil {
+				ui.Warn("Tailscale device cleanup failed: %v", err)
+			}
+		} else {
+			ui.Warn("Tailscale OAuth credentials not configured; skipping control-plane device cleanup.")
+		}
 		a.state.Connection = stateZeroConn()
 		a.state.AnsibleApplied = false
+		a.state.PublicSSHClosed = false
 		_ = a.state.Save()
 		ui.Info("All Rover resources deleted. Cost stops.")
 	} else {
@@ -188,6 +207,54 @@ func doDown(a *appContext, del, assumeYes bool) error {
 		ui.Warn("Cost: OS disk and static public IP still incur small charges. 'rover down --delete' removes everything.")
 	}
 	return nil
+}
+
+func tailscaleLogoutScript() string {
+	return `if command -v tailscale >/dev/null 2>&1; then
+  tailscale logout || true
+  systemctl stop tailscaled || true
+  systemctl disable tailscaled || true
+fi`
+}
+
+func doTailscaleCleanup(a *appContext, deleteOnline, dryRun bool) (tailscale.CleanupResult, error) {
+	if !a.state.HasTSOAuth() {
+		return tailscale.CleanupResult{}, fmt.Errorf("Tailscale OAuth credentials not configured; set them with 'rover config --edit'")
+	}
+	res, err := tailscale.CleanupDevices(
+		a.state.TSClientID(),
+		a.state.TSClientSecret(),
+		a.state.TSTagSlice(),
+		a.state.TSHostname(),
+		deleteOnline,
+		dryRun,
+	)
+	if err != nil {
+		return res, err
+	}
+	printTailscaleCleanupResult(res, dryRun)
+	return res, nil
+}
+
+func printTailscaleCleanupResult(res tailscale.CleanupResult, dryRun bool) {
+	if len(res.Matched) == 0 {
+		ui.Info("No matching Rover Tailscale devices found.")
+		return
+	}
+	for _, d := range res.Deleted {
+		ui.Info("Deleted Tailscale device: %s", d.DisplayName())
+	}
+	for _, d := range res.WouldDelete {
+		ui.Info("Would delete Tailscale device: %s", d.DisplayName())
+	}
+	for _, d := range res.Skipped {
+		if dryRun {
+			ui.Info("Would skip online Tailscale device: %s", d.DisplayName())
+		} else {
+			ui.Info("Skipped online Tailscale device: %s", d.DisplayName())
+		}
+	}
+	ui.Info("Tailscale cleanup: matched=%d deleted=%d would-delete=%d skipped=%d", len(res.Matched), len(res.Deleted), len(res.WouldDelete), len(res.Skipped))
 }
 
 // doDisk grows the OS disk to gb GiB, preserving the disk and its data. The new

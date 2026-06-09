@@ -139,15 +139,14 @@
 # --- Dune ------------------------------------------------------------------
 - name: Check whether dune is already installed
   become_user: "{{ target_user }}"
-  ansible.builtin.command: bash -lc "command -v dune"
+  ansible.builtin.stat:
+    path: "{{ user_home }}/.local/bin/dune"
   register: dune_check
-  changed_when: false
-  failed_when: false
 
 - name: Install dune
   become_user: "{{ target_user }}"
   ansible.builtin.shell: "curl -fsSL {{ dune_install_url }} | bash"
   args:
     executable: /bin/bash
-  when: dune_check.rc != 0
+  when: not dune_check.stat.exists
   changed_when: true

@@ -37,7 +37,8 @@ write_files:
     content: |
       [Socket]
       ListenStream=
-      ListenStream=__ROVER_SSH_PORT__
+      ListenStream=0.0.0.0:__ROVER_SSH_PORT__
+      ListenStream=[::]:__ROVER_SSH_PORT__
   # A marker Ansible/scripts can poll to know first boot finished.
   - path: /etc/rover/cloud-init.txt
     permissions: '0644'

@@ -147,6 +147,32 @@ func (c *Client) SetPublicSSH(allowed bool) error {
 	return c.stream("ssh-access", action)
 }
 
+// RunCommand executes a shell script inside the running VM via Azure Run
+// Command. It does not depend on SSH reachability, so it still works after
+// Rover has locked public SSH down to Tailscale-only access.
+func (c *Client) RunCommand(script string) error {
+	args := []string{
+		"vm", "run-command", "invoke",
+		"-g", c.state.ResourceGroup,
+		"-n", c.state.VMName,
+		"--command-id", "RunShellScript",
+		"--scripts", script,
+		"-o", "none",
+	}
+	if c.state.Subscription != "" {
+		args = append(args, "--subscription", c.state.Subscription)
+	}
+	cmd := exec.Command("az", args...)
+	cmd.Env = c.state.Env()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("az vm run-command invoke: %w", err)
+	}
+	return nil
+}
+
 func containsFold(s, sub string) bool {
 	return len(s) >= len(sub) && bytes.Contains(bytes.ToLower([]byte(s)), bytes.ToLower([]byte(sub)))
 }

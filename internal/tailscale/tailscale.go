@@ -29,6 +29,26 @@ type statusJSON struct {
 	Peer         map[string]*Peer `json:"Peer"`
 }
 
+// Device is the subset of the Tailscale API device response Rover needs for
+// cleanup.
+type Device struct {
+	ID                 string   `json:"id"`
+	NodeID             string   `json:"nodeId"`
+	Name               string   `json:"name"`
+	Hostname           string   `json:"hostname"`
+	Tags               []string `json:"tags"`
+	ConnectedToControl bool     `json:"connectedToControl"`
+	IsExternal         bool     `json:"isExternal"`
+}
+
+// CleanupResult describes a Tailscale cleanup run.
+type CleanupResult struct {
+	Matched     []Device
+	Deleted     []Device
+	WouldDelete []Device
+	Skipped     []Device
+}
+
 // Available reports whether the local `tailscale` CLI is installed.
 func Available() bool {
 	_, err := exec.LookPath("tailscale")
@@ -66,12 +86,28 @@ func FindPeer(host string) (*Peer, error) {
 		return nil, ErrNotRunning
 	}
 	want := strings.ToLower(host)
+	var fallback *Peer
 	for _, p := range st.Peer {
-		if strings.EqualFold(p.HostName, want) || strings.HasPrefix(strings.ToLower(p.DNSName), want+".") {
+		if !matchesPeer(p, want) {
+			continue
+		}
+		if p.Online {
 			return p, nil
 		}
+		if fallback == nil {
+			fallback = p
+		}
+	}
+	if fallback != nil {
+		return fallback, nil
 	}
 	return nil, &PeerNotFoundError{Host: host}
+}
+func matchesPeer(p *Peer, want string) bool {
+	if p == nil {
+		return false
+	}
+	return strings.EqualFold(p.HostName, want) || strings.HasPrefix(strings.ToLower(p.DNSName), want+".")
 }
 
 // Target returns the best address to connect to (MagicDNS name, else IP).
@@ -98,35 +134,137 @@ func Connect(user, host string, extra ...string) error {
 	return cmd.Run()
 }
 
-// GetAuthKey generates an ephemeral Tailscale auth key using Tailscale OAuth client credentials.
-func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
-	// 1. Get access token via OAuth
-	tokenURL := "https://api.tailscale.com/api/v2/oauth/token"
-	data := url.Values{}
-	data.Set("client_id", clientID)
-	data.Set("client_secret", clientSecret)
-	data.Set("grant_type", "client_credentials")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.PostForm(tokenURL, data)
+// CleanupDevices removes Rover-owned Tailscale devices. By default it deletes
+// only stale/offline matches; when deleteOnline is true it deletes all matching
+// Rover devices, which is appropriate after `tailscale logout` during teardown.
+// When dryRun is true it reports what would be removed without deleting.
+func CleanupDevices(clientID, clientSecret string, tags []string, hostname string, deleteOnline, dryRun bool) (CleanupResult, error) {
+	token, err := getAccessToken(clientID, clientSecret)
 	if err != nil {
-		return "", fmt.Errorf("oauth token request: %w", err)
+		return CleanupResult{}, err
+	}
+	devices, err := listDevices(token)
+	if err != nil {
+		return CleanupResult{}, err
+	}
+	tagSet := map[string]bool{}
+	for _, tag := range tags {
+		tagSet[tag] = true
+	}
+
+	var res CleanupResult
+	for _, d := range devices {
+		if !matchesDevice(d, hostname, tagSet) {
+			continue
+		}
+		res.Matched = append(res.Matched, d)
+		if d.ConnectedToControl && !deleteOnline {
+			res.Skipped = append(res.Skipped, d)
+			continue
+		}
+		if dryRun {
+			res.WouldDelete = append(res.WouldDelete, d)
+			continue
+		}
+		if err := deleteDevice(token, d.DeviceID()); err != nil {
+			return res, err
+		}
+		res.Deleted = append(res.Deleted, d)
+	}
+	return res, nil
+}
+
+func matchesDevice(d Device, hostname string, tags map[string]bool) bool {
+	if d.IsExternal {
+		return false
+	}
+	want := strings.ToLower(hostname)
+	if !strings.EqualFold(d.Hostname, want) &&
+		!strings.HasPrefix(strings.ToLower(d.Hostname), want+"-") &&
+		!strings.HasPrefix(strings.ToLower(d.Name), want+".") &&
+		!strings.HasPrefix(strings.ToLower(d.Name), want+"-") {
+		return false
+	}
+	if len(tags) == 0 {
+		return true
+	}
+	for _, tag := range d.Tags {
+		if tags[tag] {
+			return true
+		}
+	}
+	return false
+}
+
+func (d Device) DeviceID() string {
+	if d.NodeID != "" {
+		return d.NodeID
+	}
+	return d.ID
+}
+
+func (d Device) DisplayName() string {
+	if d.Name != "" {
+		return d.Name
+	}
+	if d.Hostname != "" {
+		return d.Hostname
+	}
+	return d.DeviceID()
+}
+
+func listDevices(token string) ([]Device, error) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.tailscale.com/api/v2/tailnet/-/devices?fields=all", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list tailscale devices: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("oauth token request failed (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("list tailscale devices failed (status %d): %s", resp.StatusCode, string(body))
+	}
+	var out struct {
+		Devices []Device `json:"devices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode tailscale devices: %w", err)
+	}
+	return out.Devices, nil
+}
+
+func deleteDevice(token, deviceID string) error {
+	if deviceID == "" {
+		return fmt.Errorf("delete tailscale device: empty device id")
+	}
+	req, err := http.NewRequest(http.MethodDelete, "https://api.tailscale.com/api/v2/device/"+url.PathEscape(deviceID), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("delete tailscale device %s: %w", deviceID, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete tailscale device %s failed (status %d): %s", deviceID, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// GetAuthKey generates an ephemeral Tailscale auth key using Tailscale OAuth client credentials.
+func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
+	token, err := getAccessToken(clientID, clientSecret)
+	if err != nil {
+		return "", err
 	}
 
-	var tokenRes struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&tokenRes); err != nil {
-		return "", fmt.Errorf("decode oauth response: %w", err)
-	}
-
-	// 2. Create Auth Key
 	keyURL := "https://api.tailscale.com/api/v2/tailnet/-/keys"
 
 	type deviceCreate struct {
@@ -165,9 +303,9 @@ func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 		return "", fmt.Errorf("create key request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tokenRes.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 
-	keyResp, err := client.Do(req)
+	keyResp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return "", fmt.Errorf("execute create key request: %w", err)
 	}
@@ -186,4 +324,32 @@ func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	}
 
 	return keyRes.Key, nil
+}
+
+func getAccessToken(clientID, clientSecret string) (string, error) {
+	tokenURL := "https://api.tailscale.com/api/v2/oauth/token"
+	data := url.Values{}
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("grant_type", "client_credentials")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.PostForm(tokenURL, data)
+	if err != nil {
+		return "", fmt.Errorf("oauth token request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("oauth token request failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var tokenRes struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenRes); err != nil {
+		return "", fmt.Errorf("decode oauth response: %w", err)
+	}
+	return tokenRes.AccessToken, nil
 }
