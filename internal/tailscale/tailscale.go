@@ -196,6 +196,7 @@ func matchesDevice(d Device, hostname string, tags map[string]bool) bool {
 	return false
 }
 
+// DeviceID returns the preferred identifier for API calls.
 func (d Device) DeviceID() string {
 	if d.NodeID != "" {
 		return d.NodeID
@@ -203,6 +204,7 @@ func (d Device) DeviceID() string {
 	return d.ID
 }
 
+// DisplayName returns the most useful human-readable name for CLI output.
 func (d Device) DisplayName() string {
 	if d.Name != "" {
 		return d.Name

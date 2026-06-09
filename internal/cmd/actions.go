@@ -219,7 +219,7 @@ fi`
 
 func doTailscaleCleanup(a *appContext, deleteOnline, dryRun bool) (tailscale.CleanupResult, error) {
 	if !a.state.HasTSOAuth() {
-		return tailscale.CleanupResult{}, fmt.Errorf("Tailscale OAuth credentials not configured; set them with 'rover config --edit'")
+		return tailscale.CleanupResult{}, fmt.Errorf("tailscale OAuth credentials not configured; set them with 'rover config --edit'")
 	}
 	res, err := tailscale.CleanupDevices(
 		a.state.TSClientID(),
