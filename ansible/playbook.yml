@@ -5,12 +5,23 @@
 #
 #   ansible-playbook -i '<host>,' -u <admin> --private-key <key> playbook.yml
 #
+# gather_facts is off so the play can first WAIT for SSH instead of failing on
+# the boot-time window: a freshly created VM is reported "running" by Azure
+# before cloud-init has moved sshd onto Rover's custom port, so the first connect
+# gets "Connection refused". wait_for_connection retries until sshd is listening;
+# only then do we gather facts and run the roles.
 - name: Configure Rover VM for Dune
   hosts: all
   become: true
-  gather_facts: true
+  gather_facts: false
   vars:
     target_user: "{{ ansible_user | default(ansible_env.USER) }}"
+  pre_tasks:
+    - name: Wait for SSH to accept connections (VM may still be booting)
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+    - name: Gather facts
+      ansible.builtin.setup:
   roles:
     - dune
     - tailscale

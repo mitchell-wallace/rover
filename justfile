@@ -12,6 +12,13 @@ default:
 build:
     go build -ldflags "{{ldflags}}" -o bin/rover ./cmd/rover
 
+# Build and run rover from source against the working-tree assets (cloud-init,
+# bicep, ansible) so local changes take effect without a release. Pass any rover
+# args, e.g. `just run provision` or `just run up small`.
+run *args:
+    go build -ldflags "{{ldflags}}" -o bin/rover ./cmd/rover
+    ROVER_ASSET_DIR="{{justfile_directory()}}" ./bin/rover {{args}}
+
 # Build and install rover to ~/.local/bin (override with ROVER_INSTALL_DIR).
 install: build
     mkdir -p "{{install_dir}}"

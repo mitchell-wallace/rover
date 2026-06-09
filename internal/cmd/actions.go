@@ -3,9 +3,11 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
+	"time"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
@@ -276,6 +278,31 @@ func doSSH(a *appContext, extra ...string) error {
 	return a.azure.SSH(extra...)
 }
 
+// waitForSSH polls host:port until it accepts a TCP connection, up to a few
+// minutes, so provisioning a just-created VM doesn't fail before cloud-init has
+// moved sshd onto Rover's custom port. It's best-effort: on timeout it returns
+// and lets Ansible (which also waits) surface any real failure.
+func waitForSSH(host string, port int) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	deadline := time.Now().Add(5 * time.Minute)
+	announced := false
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			if announced {
+				ui.Info("SSH is up.")
+			}
+			return
+		}
+		if !announced {
+			ui.Info("Waiting for SSH on port %d (the VM may still be booting)...", port)
+			announced = true
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
 // doProvision runs the Ansible playbook against the live VM.
 func doProvision(a *appContext) error {
 	info, err := a.azure.Info()
@@ -323,6 +350,12 @@ func doProvision(a *appContext) error {
 	} else {
 		ui.Info("Provisioning %s (%s) over public IP with Ansible...", info.VMName, host)
 	}
+
+	// A freshly created VM reports "running" before cloud-init has moved sshd onto
+	// Rover's custom port, so the port refuses connections for a short window.
+	// Wait for it to open before handing off to Ansible (which also retries via
+	// wait_for_connection, but this gives clearer feedback while booting).
+	waitForSSH(host, a.state.SSHPort())
 
 	err = ansible.Provision(ansible.Params{
 		Host:       host,
