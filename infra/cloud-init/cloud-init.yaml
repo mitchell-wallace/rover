@@ -13,15 +13,32 @@ packages:
   - python3-apt
   - sudo
 
-# Ensure the SSH server is up and the admin user (created by Azure from the
-# provided public key) can be reached. Azure injects the admin user + key via
-# the osProfile, so we only need to guarantee sshd is enabled.
+# Ensure the SSH server is up on Rover's non-default port and the admin user
+# (created by Azure from the provided public key) can be reached. Azure injects
+# the admin user + key via the osProfile; we set the listen port and enable sshd.
+#
+# Ubuntu 24.04 socket-activates ssh, so a `Port` in sshd_config is ignored on its
+# own — the listening port is owned by ssh.socket. We override the socket (the
+# empty ListenStream= clears the default :22) AND drop a sshd_config Port line so
+# the port is correct whether or not socket activation is in play.
 runcmd:
+  - systemctl daemon-reload
+  - systemctl restart ssh.socket || systemctl restart ssh || true
   - systemctl enable --now ssh || systemctl enable --now sshd || true
   - touch /var/lib/rover-cloud-init-done
 
-# A marker Ansible/scripts can poll to know first boot finished.
 write_files:
+  - path: /etc/ssh/sshd_config.d/10-rover.conf
+    permissions: '0644'
+    content: |
+      Port __ROVER_SSH_PORT__
+  - path: /etc/systemd/system/ssh.socket.d/override.conf
+    permissions: '0644'
+    content: |
+      [Socket]
+      ListenStream=
+      ListenStream=__ROVER_SSH_PORT__
+  # A marker Ansible/scripts can poll to know first boot finished.
   - path: /etc/rover/cloud-init.txt
     permissions: '0644'
     content: |

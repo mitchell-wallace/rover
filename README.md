@@ -152,6 +152,24 @@ data**.
 deploys via Bicep, and runs cloud-init for first-boot prep. Re-running `up`
 redeploys/resizes the same VM in place — Rover enforces one VM at a time.
 
+On a **fresh create** (no VM yet), `up` then **provisions automatically** and, if
+Tailscale is set up, **locks the VM down to Tailscale-only SSH** (see
+[Tailscale](#tailscale-optional)). Pass `--no-provision` to skip the automatic
+provision. Re-running `up` on an existing VM (resize/redeploy) does **not**
+auto-provision — run `rover provision` yourself if needed.
+
+If Tailscale isn't configured/connected when you create a VM, `up` warns that
+lockdown can't engage and asks before creating a VM that stays reachable on the
+public SSH port.
+
+### SSH port
+
+Rover does not use the default SSH port 22. It listens on a non-default high port
+(default **29472**, configurable via `rover config --edit`), set at first boot and
+allowed through the Azure NSG. `rover ssh`/`rover provision` use it automatically;
+a manual `ssh` needs `-p 29472`. Tailscale SSH (`rover connect`) is unaffected by
+this port.
+
 ## Disk / storage
 
 The OS disk is a single persistent disk whose size is **decoupled from the
@@ -219,27 +237,30 @@ opt-in: if you don't set `TS_AUTHKEY`, provisioning skips Tailscale entirely.
      ]
    }
    ```
-3. Generate an **auth key** (Settings → Keys → *Generate auth key*) OR generate an **OAuth Client** (Settings → OAuth → *Generate OAuth client*):
-   * **OAuth Client (Recommended)**: Select scope `devices` with **write** access and attach the tag **`tag:rover`**. Copy the Client ID and Client Secret immediately.
+3. Generate an **auth key** (Settings → Keys → *Generate auth key*) OR generate an **OAuth Client** (Settings → **Trust credentials** → *+ Credential* → choose **OAuth**, not OpenID Connect):
+   * **OAuth Client (Recommended)**: Grant the **`auth_keys`** scope with **write** access (Rover only mints ephemeral auth keys — it never touches device-management endpoints, so `devices:core` is not needed) and attach the tag **`tag:rover`**. Copy the Client ID and Client Secret immediately. The tag is required — and `tag:rover` must list the client (or `autogroup:admin`) under `tagOwners` in your ACL (step 2), or key minting succeeds but the node can't apply the tag and won't come up.
    * **Auth Key**: Make it **Reusable** + **Ephemeral**, and attach the tag **`tag:rover`**. Ephemeral means deallocated/deleted VMs auto-clean from your tailnet.
 
 **Use it (OAuth Client — recommended):**
 
-Configure your credentials once, and Rover will automatically mint single-use keys on demand:
+Configure your credentials once; Rover mints a single-use key on demand each provision. Make sure local Tailscale is connected (`tailscale up`) so Rover can verify the join and close public SSH.
 
 ```sh
-rover config --edit       # Enter Client ID, Client Secret, and set Close Public SSH to true
-rover up small
-rover provision           # Mints auth key, joins tailnet, provisions, and locks public SSH
+rover config --edit       # Enter the OAuth Client ID + Client Secret
+rover up small            # fresh create → auto-provisions, joins tailnet, then
+                          # auto-closes public SSH once Tailscale is verified
 rover connect             # Tailscale SSH to rover-vm
 ```
+
+(You can still run `rover provision` manually — e.g. after `--no-provision`, or to
+re-run config. It performs the same join + lockdown.)
 
 **Use it (Auth Key):**
 
 ```sh
 export TS_AUTHKEY=tskey-auth-xxxxxxxx     # the key you generated
-rover up small
-rover provision                            # detects TS_AUTHKEY, joins the tailnet
+rover up small                             # fresh create auto-provisions, detects
+                                           # TS_AUTHKEY, joins the tailnet, locks down
 rover connect                              # Tailscale SSH to rover-vm
 ```
 
@@ -251,7 +272,14 @@ use `rover ssh`. The node name/tags are configurable via `rover config --edit`
 are saved locally in `~/.config/rover/state.json` (protected with `0600` owner-only
 permissions) so you don't need to specify them on every command.
 
-> Note: By default, public SSH (port 22) is open as a fallback. If you enable "Close public SSH port" in your config (`rover config --edit`) or approve the prompt after a successful `rover provision` run, Rover will update the Azure NSG rule to block port 22 on the public IP, locking the VM down to Tailscale-only. Subsequent `rover provision` runs and `rover ssh` commands will automatically route over your Tailnet. If Tailscale ever breaks, running `rover up` or toggling the config will reopen public SSH.
+> Note: Public SSH (the non-default port, default 29472) is open during the
+> bootstrap provision as a fallback. Once Tailscale is verified online after
+> provisioning, Rover **automatically** updates the Azure NSG rule to block public
+> SSH, locking the VM down to Tailscale-only — no prompt. Subsequent `rover
+> provision` runs route over your tailnet. If Tailscale verification fails, public
+> SSH is left open and Rover warns you. Re-running `rover up` on a fresh create
+> reopens public SSH for the bootstrap; `rover config --edit` also exposes the
+> lockdown flag.
 
 ## Running Dune remotely
 
@@ -308,9 +336,10 @@ an increase (a few cores is plenty):
 - **No remote Dune/Rally session detection.** Future work: warn before bringing
   down a VM with an active session, and cost/cleanup reminders.
 - **Not integrated into Dune** yet — Rover is standalone for now.
-- **Tailscale is optional** (see above) and additive — public SSH stays open.
-  Auth keys expire (max 90 days); for fully hands-off automation, a Tailscale
-  OAuth client (mint keys on demand) is a future upgrade.
+- **Tailscale is optional** (see above). When set up, a fresh `rover up`
+  auto-closes public SSH after verifying the tailnet join; without it the VM
+  stays on the public (non-default) SSH port. The OAuth client (mints keys on
+  demand) is the recommended hands-off path.
 
 ## Updating Rover
 

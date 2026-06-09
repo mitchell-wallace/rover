@@ -18,6 +18,7 @@ ROVER_RESOURCE_GROUP="${ROVER_RESOURCE_GROUP:-rover-rg}"
 ROVER_LOCATION="${ROVER_LOCATION:-australiaeast}"
 ROVER_VM_NAME="${ROVER_VM_NAME:-rover-vm}"
 ROVER_DISK_GB="${ROVER_DISK_GB:-30}"
+ROVER_SSH_PORT="${ROVER_SSH_PORT:-29472}"
 ROVER_ADMIN_USER="${ROVER_ADMIN_USER:-${USER:-rover}}"
 ROVER_SSH_PUBKEY="${ROVER_SSH_PUBKEY:-$HOME/.ssh/id_rsa.pub}"
 # Private key is derived from the public key path unless set explicitly.

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
@@ -22,8 +24,41 @@ func (a *appContext) syncConnection(info azure.Info) {
 	_ = a.state.Save()
 }
 
-// doUp provisions/redeploys the VM at the given family/size.
-func doUp(a *appContext, family, size string, assumeYes bool) error {
+// scrubKnownHosts removes any stale host keys for host (both the plain and the
+// custom-port "[host]:port" forms) from the user's known_hosts. Rover VMs reuse
+// a deterministic FQDN across recreate with a fresh host key, so a redeploy is a
+// genuinely new host and dropping the old key is correct — it keeps interactive
+// `rover ssh` (which still verifies host keys) from failing on the change.
+func scrubKnownHosts(host string, port int) {
+	if host == "" {
+		return
+	}
+	for _, target := range []string{host, fmt.Sprintf("[%s]:%d", host, port)} {
+		_ = exec.Command("ssh-keygen", "-R", target).Run()
+	}
+}
+
+// tailscaleReady reports whether Rover can join the VM to the tailnet and verify
+// it: credentials must be configured (TS_AUTHKEY or OAuth) AND the local
+// tailscale backend must be running so the peer can be confirmed and public SSH
+// closed. A PeerNotFoundError (VM not up yet) still means the local backend is
+// usable; only ErrNotInstalled/ErrNotRunning mean it isn't.
+func tailscaleReady(st *config.State) bool {
+	if os.Getenv("TS_AUTHKEY") == "" && !st.HasTSOAuth() {
+		return false
+	}
+	_, err := tailscale.FindPeer(st.TSHostname())
+	if err == nil {
+		return true
+	}
+	var notFound *tailscale.PeerNotFoundError
+	return errors.As(err, &notFound)
+}
+
+// doUp provisions/redeploys the VM at the given family/size. On a fresh create it
+// auto-provisions (unless noProvision) and, when Tailscale is ready, locks the VM
+// down to Tailscale-only SSH.
+func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error {
 	family = sizes.NormalizeFamily(family)
 	if err := sizes.Validate(family, size); err != nil {
 		return err
@@ -38,9 +73,30 @@ func doUp(a *appContext, family, size string, assumeYes bool) error {
 		a.state.ResourceGroup, a.state.VMName, a.state.Location, a.state.AdminUsername, a.state.DiskGB())
 
 	current, err := a.azure.Status()
+	fresh := err == nil && !current.Exists
 	if err == nil && current.Running() && current.VMSize != "" && current.VMSize != profile.SKU {
 		ui.Warn("A VM is already running as %s. Rover manages one VM at a time;", current.VMSize)
 		ui.Warn("continuing will redeploy/resize it in place to %s.", profile.SKU)
+	}
+
+	// A fresh create auto-provisions and then locks down to Tailscale-only SSH.
+	// If Tailscale isn't ready that lockdown can't engage, so warn and confirm
+	// before creating a VM that will stay reachable on the public SSH port.
+	willProvision := fresh && !noProvision
+	if willProvision && !tailscaleReady(a.state) {
+		ui.Warn("Tailscale isn't configured/connected locally, so the new VM won't join your")
+		ui.Warn("tailnet and public SSH can't be auto-closed — it will stay open on port %d.", a.state.SSHPort())
+		ok, cerr := ui.Confirm(
+			"Continue creating a public-SSH-only VM?",
+			"For automatic lockdown, set Tailscale OAuth ('rover config --edit') or TS_AUTHKEY and run 'tailscale up' first.",
+			false,
+		)
+		if cerr != nil {
+			return cerr
+		}
+		if !ok && !assumeYes {
+			return fmt.Errorf("aborted; configure Tailscale then re-run 'rover up'")
+		}
 	}
 
 	ok, err := ui.Confirm(
@@ -55,6 +111,12 @@ func doUp(a *appContext, family, size string, assumeYes bool) error {
 		return fmt.Errorf("aborted")
 	}
 
+	// A fresh VM needs public SSH open for the bootstrap provision; clear any
+	// stale lockdown flag left in state (e.g. from a prior, now-deleted VM).
+	if fresh {
+		a.state.PublicSSHClosed = false
+	}
+
 	info, err := a.azure.Up(family, size)
 	if err != nil {
 		return err
@@ -63,9 +125,21 @@ func doUp(a *appContext, family, size string, assumeYes bool) error {
 	a.state.Size = size
 	a.syncConnection(info)
 
+	// A (re)deployed VM presents a fresh host key on the same FQDN; drop stale
+	// known_hosts entries so 'rover ssh' connects without a verification failure.
+	scrubKnownHosts(info.FQDN, a.state.SSHPort())
+	scrubKnownHosts(info.PublicIP, a.state.SSHPort())
+
 	fmt.Println()
 	ui.Info("VM is up: %s (%s)", info.VMName, info.PowerState)
 	printInfo(info)
+
+	if willProvision {
+		fmt.Println()
+		ui.Info("New VM — provisioning automatically (pass --no-provision to skip)...")
+		return doProvision(a)
+	}
+
 	fmt.Println("\nNext steps:")
 	fmt.Println("  rover provision   # configure the host with Ansible (Docker, dune, zsh, ...)")
 	fmt.Println("  rover ssh         # connect")
@@ -256,6 +330,7 @@ func doProvision(a *appContext) error {
 		PrivateKey: a.state.PrivateKeyPath(),
 		AssetDir:   a.assetDir,
 		ExtraVars: map[string]string{
+			"ansible_port":       strconv.Itoa(a.state.SSHPort()),
 			"tailscale_hostname": a.state.TSHostname(),
 			"tailscale_tags":     a.state.TSTags(),
 		},
@@ -267,30 +342,27 @@ func doProvision(a *appContext) error {
 	a.syncConnection(info)
 	ui.Info("Provisioning complete.")
 
-	// 3. Verify Tailscale is active and offer to close public SSH if verified
+	// 3. Verify Tailscale is active and, if so, automatically lock the VM down to
+	// Tailscale-only SSH (close the public SSH port). This is intentionally not a
+	// prompt — the decision to require Tailscale was made at 'rover up' time.
 	if authKey != "" || usingOAuth {
 		ui.Info("Verifying Tailscale connection to VM...")
 		if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
-			ui.Info("Tailscale connection verified successfully!")
-			if !a.state.PublicSSHClosed {
-				ok, err := ui.Confirm(
-					"Close public SSH port 22?",
-					"Tailscale is verified and working. Close public SSH to secure your VM (only allow SSH over Tailscale)?",
-					true,
-				)
-				if err == nil && ok {
-					err = a.azure.SetPublicSSH(false)
-					if err == nil {
-						a.state.PublicSSHClosed = true
-						_ = a.state.Save()
-						ui.Info("Public SSH access disabled. The VM is now accessible only over Tailscale.")
-					} else {
-						ui.Warn("Failed to disable public SSH: %v", err)
-					}
+			ui.Info("Tailscale connection verified.")
+			if a.state.PublicSSHClosed {
+				ui.Info("Public SSH already closed — VM reachable only over Tailscale.")
+			} else {
+				ui.Info("Locking down: closing public SSH (VM stays reachable over Tailscale)...")
+				if err := a.azure.SetPublicSSH(false); err != nil {
+					ui.Warn("Failed to close public SSH: %v — public SSH left OPEN on port %d.", err, a.state.SSHPort())
+				} else {
+					a.state.PublicSSHClosed = true
+					_ = a.state.Save()
+					ui.Info("Public SSH closed. The VM is now reachable only over Tailscale ('rover connect').")
 				}
 			}
 		} else {
-			ui.Warn("Tailscale connection verification failed: peer is offline or not found. Keeping public SSH open.")
+			ui.Warn("Tailscale verification failed: peer offline or not found — keeping public SSH OPEN on port %d.", a.state.SSHPort())
 		}
 	}
 

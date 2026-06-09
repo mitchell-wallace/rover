@@ -87,7 +87,7 @@ func runInteractive() error {
 					Run()
 			}
 			if err == nil {
-				err = doUp(a, family, size, false)
+				err = doUp(a, family, size, false, false)
 			}
 		case "provision":
 			err = doProvision(a)

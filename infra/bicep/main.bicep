@@ -48,6 +48,11 @@ param osDiskSizeGB int = 30
 ])
 param publicSshAccess string = 'Allow'
 
+@description('TCP port the VM listens on for SSH. Rover uses a non-default high port (below the Linux ephemeral range) instead of 22.')
+@minValue(1)
+@maxValue(65535)
+param sshPort int = 29472
+
 // ---------------------------------------------------------------------------
 // Compute family × size profiles. These map ONLY to a VM SKU — disk is
 // intentionally independent (see osDiskSizeGB) so resizing compute never
@@ -85,8 +90,10 @@ var pipName = '${vmName}-pip'
 var nicName = '${vmName}-nic'
 
 // cloud-init is baked into the deployment so first-boot prep always ships with
-// the VM. customData must be base64-encoded.
-var customData = loadFileAsBase64('../cloud-init/cloud-init.yaml')
+// the VM. customData must be base64-encoded. The SSH port is templated in (the
+// cloud-init file uses the __ROVER_SSH_PORT__ placeholder) so the VM comes up
+// already listening on the configured port — no mid-provision port switch.
+var customData = base64(replace(loadTextContent('../cloud-init/cloud-init.yaml'), '__ROVER_SSH_PORT__', string(sshPort)))
 
 resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
   name: nsgName
@@ -102,7 +109,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
           protocol: 'Tcp'
           sourcePortRange: '*'
           sourceAddressPrefix: '*'
-          destinationPortRange: '22'
+          destinationPortRange: string(sshPort)
           destinationAddressPrefix: '*'
         }
       }
@@ -224,6 +231,7 @@ output location string = location
 output adminUsername string = adminUsername
 output vmSize string = vmSize
 output osDiskSizeGB int = osDiskSizeGB
+output sshPort int = sshPort
 output publicIp string = pip.properties.ipAddress
 output fqdn string = pip.properties.dnsSettings.fqdn
 output privateIp string = nic.properties.ipConfigurations[0].properties.privateIPAddress

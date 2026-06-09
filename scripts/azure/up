@@ -58,6 +58,7 @@ if ! deploy_err="$(azx deployment group create \
     family="${FAMILY}" \
     size="${SIZE}" \
     osDiskSizeGB="${ROVER_DISK_GB}" \
+    sshPort="${ROVER_SSH_PORT}" \
     publicSshAccess="${ROVER_PUBLIC_SSH_ACCESS:-Allow}" \
   -o none 2>&1)"; then
   printf '%s\n' "${deploy_err}" >&2

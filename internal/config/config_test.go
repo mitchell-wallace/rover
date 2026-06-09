@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -89,13 +90,39 @@ func TestDefaultAdminUsernameAlwaysValid(t *testing.T) {
 	}
 }
 
+func TestSSHPortDefaulting(t *testing.T) {
+	if got := (&State{}).SSHPort(); got != DefaultSSHPort {
+		t.Errorf("unset SSHPort() = %d, want default %d", got, DefaultSSHPort)
+	}
+	if got := (&State{SSHListenPort: 2222}).SSHPort(); got != 2222 {
+		t.Errorf("SSHPort() = %d, want 2222", got)
+	}
+	if got := Default().SSHPort(); got != DefaultSSHPort {
+		t.Errorf("Default().SSHPort() = %d, want %d", got, DefaultSSHPort)
+	}
+}
+
+func TestValidateSSHPort(t *testing.T) {
+	for _, p := range []int{0, 1, 22, 29472, 65535} { // 0 = unset, accepted
+		if err := ValidateSSHPort(p); err != nil {
+			t.Errorf("ValidateSSHPort(%d) = %v, want nil", p, err)
+		}
+	}
+	for _, p := range []int{-1, 65536, 100000} {
+		if err := ValidateSSHPort(p); err == nil {
+			t.Errorf("ValidateSSHPort(%d) = nil, want error", p)
+		}
+	}
+}
+
 func TestEnvRendersRoverVars(t *testing.T) {
 	st := Default()
 	st.Subscription = "sub-1"
 	env := st.Env()
 	want := map[string]bool{
-		"ROVER_RESOURCE_GROUP=" + st.ResourceGroup: false,
-		"ROVER_SUBSCRIPTION=sub-1":                 false,
+		"ROVER_RESOURCE_GROUP=" + st.ResourceGroup:       false,
+		"ROVER_SUBSCRIPTION=sub-1":                       false,
+		"ROVER_SSH_PORT=" + strconv.Itoa(DefaultSSHPort): false,
 	}
 	for _, e := range env {
 		if _, ok := want[e]; ok {

@@ -35,6 +35,7 @@ type State struct {
 	Size           string     `json:"size"`
 	DiskSizeGB     int        `json:"diskSizeGB"`
 	AdminUsername  string     `json:"adminUsername"`
+	SSHListenPort  int        `json:"sshPort,omitempty"`
 	SSHPublicKey   string     `json:"sshPublicKey"`
 	SSHPrivateKey  string     `json:"sshPrivateKey,omitempty"`
 	Connection     Connection `json:"connection,omitempty"`
@@ -55,6 +56,20 @@ func (s *State) DiskGB() int {
 		return 30
 	}
 	return s.DiskSizeGB
+}
+
+// DefaultSSHPort is Rover's non-default public SSH port. It sits below the Linux
+// ephemeral range (32768–60999) so a listening sshd never races an outbound
+// socket that grabbed the same port.
+const DefaultSSHPort = 29472
+
+// SSHPort returns the configured public SSH port, defaulting to DefaultSSHPort
+// so state files written before the field existed keep a sane value.
+func (s *State) SSHPort() int {
+	if s.SSHListenPort == 0 {
+		return DefaultSSHPort
+	}
+	return s.SSHListenPort
 }
 
 // Fam returns the configured compute family, defaulting to burstable so state
@@ -138,6 +153,7 @@ func Default() *State {
 		Size:          "small",
 		DiskSizeGB:    30,
 		AdminUsername: admin,
+		SSHListenPort: DefaultSSHPort,
 		SSHPublicKey:  defaultSSHKey(),
 		TailscaleTags: "tag:rover",
 	}
@@ -212,6 +228,18 @@ func ValidateAdminUsername(name string) error {
 	return nil
 }
 
+// ValidateSSHPort returns an error if port is not a usable TCP port. 0 is
+// accepted as "unset" (callers fall back to DefaultSSHPort via State.SSHPort).
+func ValidateSSHPort(port int) error {
+	if port == 0 {
+		return nil
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("ssh port %d is out of range (1–65535)", port)
+	}
+	return nil
+}
+
 // Path returns the location of the state file (honours XDG via UserConfigDir).
 func Path() (string, error) {
 	base, err := os.UserConfigDir()
@@ -282,6 +310,7 @@ func (s *State) Env() []string {
 	add("ROVER_LOCATION", s.Location)
 	add("ROVER_VM_NAME", s.VMName)
 	add("ROVER_DISK_GB", fmt.Sprintf("%d", s.DiskGB()))
+	add("ROVER_SSH_PORT", fmt.Sprintf("%d", s.SSHPort()))
 	add("ROVER_ADMIN_USER", s.AdminUsername)
 	add("ROVER_SSH_PUBKEY", s.SSHPublicKey)
 	add("ROVER_SSH_KEY", s.PrivateKeyPath())

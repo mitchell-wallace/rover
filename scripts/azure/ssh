@@ -21,7 +21,7 @@ esac
 target="$(printf '%s' "$info" | sed -E 's/.*"sshTarget":"([^"]*)".*/\1/')"
 log "Connecting to ${target}..."
 
-ssh_opts=(-o StrictHostKeyChecking=accept-new)
+ssh_opts=(-p "${ROVER_SSH_PORT}" -o StrictHostKeyChecking=accept-new)
 [ -f "${ROVER_SSH_KEY}" ] && ssh_opts+=(-i "${ROVER_SSH_KEY}")
 
 exec ssh "${ssh_opts[@]}" "${target}" "$@"

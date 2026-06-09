@@ -11,6 +11,7 @@ func init() {
 	var sizeFlag string
 	var familyFlag string
 	var assumeYes bool
+	var noProvision bool
 
 	cmd := &cobra.Command{
 		Use:   "up [small|medium|large]",
@@ -39,11 +40,12 @@ func init() {
 			if size == "" {
 				size = "small"
 			}
-			return doUp(a, family, size, assumeYes)
+			return doUp(a, family, size, assumeYes, noProvision)
 		},
 	}
 	cmd.Flags().StringVar(&familyFlag, "family", "", "compute family: "+strings.Join(sizes.Families, "|"))
 	cmd.Flags().StringVar(&sizeFlag, "size", "", "size profile: "+strings.Join(sizes.Order, "|"))
 	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "skip confirmation prompts")
+	cmd.Flags().BoolVar(&noProvision, "no-provision", false, "on a fresh create, don't auto-run provisioning")
 	rootCmd.AddCommand(cmd)
 }
