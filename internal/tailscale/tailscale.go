@@ -18,6 +18,7 @@ import (
 	"time"
 )
 
+// Peer is the subset of `tailscale status --json` we care about.
 type Peer struct {
 	HostName     string   `json:"HostName"`
 	DNSName      string   `json:"DNSName"`
@@ -30,6 +31,8 @@ type statusJSON struct {
 	Peer         map[string]*Peer `json:"Peer"`
 }
 
+// Device is the subset of the Tailscale API device response Rover needs for
+// cleanup.
 type Device struct {
 	ID                 string   `json:"id"`
 	NodeID             string   `json:"nodeId"`
@@ -40,6 +43,7 @@ type Device struct {
 	IsExternal         bool     `json:"isExternal"`
 }
 
+// CleanupResult describes a Tailscale cleanup run.
 type CleanupResult struct {
 	Matched     []Device
 	Deleted     []Device
@@ -49,21 +53,27 @@ type CleanupResult struct {
 
 var apiClient = &http.Client{Timeout: 20 * time.Second}
 
+// Available reports whether the local `tailscale` CLI is installed.
 func Available() bool {
 	_, err := exec.LookPath("tailscale")
 	return err == nil
 }
 
+// ErrNotInstalled is returned when the tailscale CLI is missing.
 var ErrNotInstalled = fmt.Errorf("tailscale CLI not found; install it from https://tailscale.com/download and run 'tailscale up'")
 
+// ErrNotRunning is returned when the local tailscale backend isn't connected.
 var ErrNotRunning = fmt.Errorf("local Tailscale is not connected; run 'tailscale up'")
 
+// PeerNotFoundError indicates the named host isn't in the tailnet.
 type PeerNotFoundError struct{ Host string }
 
 func (e *PeerNotFoundError) Error() string {
 	return fmt.Sprintf("%q is not in your tailnet", e.Host)
 }
 
+// FindPeer returns the tailnet peer matching host (by short hostname or the
+// leading label of its MagicDNS name).
 func FindPeer(host string) (*Peer, error) {
 	if !Available() {
 		return nil, ErrNotInstalled
@@ -110,6 +120,7 @@ func matchesPeer(p *Peer, want string) bool {
 	return strings.EqualFold(p.HostName, want) || strings.HasPrefix(strings.ToLower(p.DNSName), want+".")
 }
 
+// Target returns the best address to connect to (MagicDNS name, else IP).
 func (p *Peer) Target() string {
 	if p.DNSName != "" {
 		return strings.TrimSuffix(p.DNSName, ".")
@@ -120,6 +131,7 @@ func (p *Peer) Target() string {
 	return p.HostName
 }
 
+// Connect opens an interactive Tailscale SSH session to user@host's peer.
 func Connect(user, host string, extra ...string) error {
 	if !Available() {
 		return ErrNotInstalled
@@ -132,6 +144,10 @@ func Connect(user, host string, extra ...string) error {
 	return cmd.Run()
 }
 
+// CleanupDevices removes Rover-owned Tailscale devices. By default it deletes
+// only stale/offline matches; when deleteOnline is true it deletes all matching
+// Rover devices, which is appropriate after `tailscale logout` during teardown.
+// When dryRun is true it reports what would be removed without deleting.
 func CleanupDevices(clientID, clientSecret string, tags []string, hostname string, deleteOnline, dryRun bool) (CleanupResult, error) {
 	token, err := getAccessToken(clientID, clientSecret)
 	if err != nil {
@@ -190,6 +206,7 @@ func matchesDevice(d Device, hostname string, tags map[string]bool) bool {
 	return false
 }
 
+// DeviceID returns the preferred identifier for API calls.
 func (d Device) DeviceID() string {
 	if d.NodeID != "" {
 		return d.NodeID
@@ -197,6 +214,7 @@ func (d Device) DeviceID() string {
 	return d.ID
 }
 
+// DisplayName returns the most useful human-readable name for CLI output.
 func (d Device) DisplayName() string {
 	if d.Name != "" {
 		return d.Name
@@ -252,6 +270,7 @@ func deleteDevice(token, deviceID string) error {
 	return nil
 }
 
+// GetAuthKey generates an ephemeral Tailscale auth key using Tailscale OAuth client credentials.
 func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	token, err := getAccessToken(clientID, clientSecret)
 	if err != nil {

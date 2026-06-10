@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Params describes a provisioning run.
 type Params struct {
 	Host       string
 	User       string
@@ -20,11 +21,13 @@ type Params struct {
 	ExtraVars  map[string]string
 }
 
+// Available reports whether ansible-playbook is on PATH.
 func Available() bool {
 	_, err := exec.LookPath("ansible-playbook")
 	return err == nil
 }
 
+// Provision runs the playbook, streaming output to the user's terminal.
 func Provision(p Params) error {
 	if !Available() {
 		return fmt.Errorf("ansible-playbook not found on PATH; install Ansible (e.g. 'pipx install ansible' or 'pip install --user ansible')")
