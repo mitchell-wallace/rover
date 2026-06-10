@@ -4,28 +4,27 @@
 package ansible
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
-// Params describes a provisioning run.
 type Params struct {
-	Host       string            // public IP or FQDN
-	User       string            // SSH/admin user
-	PrivateKey string            // path to SSH private key
-	AssetDir   string            // materialized asset tree root
-	ExtraVars  map[string]string // non-secret -e key=value vars for the playbook
+	Host       string
+	User       string
+	PrivateKey string
+	AssetDir   string
+	ExtraVars  map[string]string
 }
 
-// Available reports whether ansible-playbook is on PATH.
 func Available() bool {
 	_, err := exec.LookPath("ansible-playbook")
 	return err == nil
 }
 
-// Provision runs the playbook, streaming output to the user's terminal.
 func Provision(p Params) error {
 	if !Available() {
 		return fmt.Errorf("ansible-playbook not found on PATH; install Ansible (e.g. 'pipx install ansible' or 'pip install --user ansible')")
@@ -47,7 +46,9 @@ func Provision(p Params) error {
 		args = append(args, "-e", k+"="+v)
 	}
 
-	cmd := exec.Command("ansible-playbook", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ansible-playbook", args...)
 	cmd.Dir = ansibleDir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

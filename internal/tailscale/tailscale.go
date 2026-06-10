@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,11 +13,11 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
 
-// Peer is the subset of `tailscale status --json` we care about.
 type Peer struct {
 	HostName     string   `json:"HostName"`
 	DNSName      string   `json:"DNSName"`
@@ -29,8 +30,6 @@ type statusJSON struct {
 	Peer         map[string]*Peer `json:"Peer"`
 }
 
-// Device is the subset of the Tailscale API device response Rover needs for
-// cleanup.
 type Device struct {
 	ID                 string   `json:"id"`
 	NodeID             string   `json:"nodeId"`
@@ -41,7 +40,6 @@ type Device struct {
 	IsExternal         bool     `json:"isExternal"`
 }
 
-// CleanupResult describes a Tailscale cleanup run.
 type CleanupResult struct {
 	Matched     []Device
 	Deleted     []Device
@@ -49,32 +47,30 @@ type CleanupResult struct {
 	Skipped     []Device
 }
 
-// Available reports whether the local `tailscale` CLI is installed.
+var apiClient = &http.Client{Timeout: 20 * time.Second}
+
 func Available() bool {
 	_, err := exec.LookPath("tailscale")
 	return err == nil
 }
 
-// ErrNotInstalled is returned when the tailscale CLI is missing.
 var ErrNotInstalled = fmt.Errorf("tailscale CLI not found; install it from https://tailscale.com/download and run 'tailscale up'")
 
-// ErrNotRunning is returned when the local tailscale backend isn't connected.
 var ErrNotRunning = fmt.Errorf("local Tailscale is not connected; run 'tailscale up'")
 
-// PeerNotFoundError indicates the named host isn't in the tailnet.
 type PeerNotFoundError struct{ Host string }
 
 func (e *PeerNotFoundError) Error() string {
 	return fmt.Sprintf("%q is not in your tailnet", e.Host)
 }
 
-// FindPeer returns the tailnet peer matching host (by short hostname or the
-// leading label of its MagicDNS name).
 func FindPeer(host string) (*Peer, error) {
 	if !Available() {
 		return nil, ErrNotInstalled
 	}
-	out, err := exec.Command("tailscale", "status", "--json").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tailscale", "status", "--json").Output()
 	if err != nil {
 		return nil, fmt.Errorf("tailscale status: %w", err)
 	}
@@ -86,20 +82,24 @@ func FindPeer(host string) (*Peer, error) {
 		return nil, ErrNotRunning
 	}
 	want := strings.ToLower(host)
-	var fallback *Peer
+	var online, offline []*Peer
 	for _, p := range st.Peer {
 		if !matchesPeer(p, want) {
 			continue
 		}
 		if p.Online {
-			return p, nil
-		}
-		if fallback == nil {
-			fallback = p
+			online = append(online, p)
+		} else {
+			offline = append(offline, p)
 		}
 	}
-	if fallback != nil {
-		return fallback, nil
+	sort.Slice(online, func(i, j int) bool { return online[i].HostName < online[j].HostName })
+	sort.Slice(offline, func(i, j int) bool { return offline[i].HostName < offline[j].HostName })
+	if len(online) > 0 {
+		return online[0], nil
+	}
+	if len(offline) > 0 {
+		return offline[0], nil
 	}
 	return nil, &PeerNotFoundError{Host: host}
 }
@@ -110,7 +110,6 @@ func matchesPeer(p *Peer, want string) bool {
 	return strings.EqualFold(p.HostName, want) || strings.HasPrefix(strings.ToLower(p.DNSName), want+".")
 }
 
-// Target returns the best address to connect to (MagicDNS name, else IP).
 func (p *Peer) Target() string {
 	if p.DNSName != "" {
 		return strings.TrimSuffix(p.DNSName, ".")
@@ -121,7 +120,6 @@ func (p *Peer) Target() string {
 	return p.HostName
 }
 
-// Connect opens an interactive Tailscale SSH session to user@host's peer.
 func Connect(user, host string, extra ...string) error {
 	if !Available() {
 		return ErrNotInstalled
@@ -134,10 +132,6 @@ func Connect(user, host string, extra ...string) error {
 	return cmd.Run()
 }
 
-// CleanupDevices removes Rover-owned Tailscale devices. By default it deletes
-// only stale/offline matches; when deleteOnline is true it deletes all matching
-// Rover devices, which is appropriate after `tailscale logout` during teardown.
-// When dryRun is true it reports what would be removed without deleting.
 func CleanupDevices(clientID, clientSecret string, tags []string, hostname string, deleteOnline, dryRun bool) (CleanupResult, error) {
 	token, err := getAccessToken(clientID, clientSecret)
 	if err != nil {
@@ -196,7 +190,6 @@ func matchesDevice(d Device, hostname string, tags map[string]bool) bool {
 	return false
 }
 
-// DeviceID returns the preferred identifier for API calls.
 func (d Device) DeviceID() string {
 	if d.NodeID != "" {
 		return d.NodeID
@@ -204,7 +197,6 @@ func (d Device) DeviceID() string {
 	return d.ID
 }
 
-// DisplayName returns the most useful human-readable name for CLI output.
 func (d Device) DisplayName() string {
 	if d.Name != "" {
 		return d.Name
@@ -221,13 +213,13 @@ func listDevices(token string) ([]Device, error) {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := apiClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("list tailscale devices: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return nil, fmt.Errorf("list tailscale devices failed (status %d): %s", resp.StatusCode, string(body))
 	}
 	var out struct {
@@ -248,19 +240,18 @@ func deleteDevice(token, deviceID string) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := apiClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("delete tailscale device %s: %w", deviceID, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return fmt.Errorf("delete tailscale device %s failed (status %d): %s", deviceID, resp.StatusCode, string(body))
 	}
 	return nil
 }
 
-// GetAuthKey generates an ephemeral Tailscale auth key using Tailscale OAuth client credentials.
 func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	token, err := getAccessToken(clientID, clientSecret)
 	if err != nil {
@@ -287,7 +278,7 @@ func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	}
 
 	payload := createKeyPayload{
-		ExpirySeconds: 3600, // 1 hour
+		ExpirySeconds: 3600,
 		Description:   "Automated key generated by Rover CLI",
 	}
 	payload.Capabilities.Devices.Create.Reusable = false
@@ -307,14 +298,14 @@ func GetAuthKey(clientID, clientSecret string, tags []string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	keyResp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	keyResp, err := apiClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("execute create key request: %w", err)
 	}
 	defer func() { _ = keyResp.Body.Close() }()
 
 	if keyResp.StatusCode != http.StatusOK && keyResp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(keyResp.Body)
+		body, _ := io.ReadAll(io.LimitReader(keyResp.Body, 64*1024))
 		return "", fmt.Errorf("create key failed (status %d): %s", keyResp.StatusCode, string(body))
 	}
 
@@ -335,15 +326,14 @@ func getAccessToken(clientID, clientSecret string) (string, error) {
 	data.Set("client_secret", clientSecret)
 	data.Set("grant_type", "client_credentials")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.PostForm(tokenURL, data)
+	resp, err := apiClient.PostForm(tokenURL, data)
 	if err != nil {
 		return "", fmt.Errorf("oauth token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return "", fmt.Errorf("oauth token request failed (status %d): %s", resp.StatusCode, string(body))
 	}
 

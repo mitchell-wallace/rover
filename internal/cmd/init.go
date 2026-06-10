@@ -102,6 +102,9 @@ func doInit(st *config.State) error {
 }
 
 func mustConfigPath() string {
-	p, _ := config.Path()
+	p, err := config.Path()
+	if err != nil {
+		return "(error: " + err.Error() + ")"
+	}
 	return p
 }

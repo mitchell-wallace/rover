@@ -22,7 +22,11 @@ func runInteractive() error {
 	}
 
 	// First run (no state file yet): walk through guided setup before the menu.
-	if configured, _ := config.Exists(); !configured {
+	configured, err := config.Exists()
+	if err != nil {
+		return err
+	}
+	if !configured {
 		st, err := loadStateOnly()
 		if err != nil {
 			return err

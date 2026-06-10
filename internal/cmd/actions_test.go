@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -158,7 +159,7 @@ func TestRestoreConnectivity_PublicSSHOpen_NoAction(t *testing.T) {
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = false
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 }
@@ -220,7 +221,7 @@ func TestRestoreConnectivity_TailscaleReauthSuccess(t *testing.T) {
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -283,7 +284,7 @@ func TestRestoreConnectivity_TailscaleNeverComesOnline_OpensPublicSSH(t *testing
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -320,7 +321,7 @@ func TestRestoreConnectivity_NoTailscaleCreds_OpensPublicSSH(t *testing.T) {
 	a.state.TailscaleClientSecret = ""
 	t.Setenv("TS_AUTHKEY", "")
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -366,7 +367,7 @@ func TestRestoreConnectivity_AuthKeyGenerationFails_OpensPublicSSH(t *testing.T)
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -398,7 +399,7 @@ func TestRestoreConnectivity_SetPublicSSHError_ReturnsError(t *testing.T) {
 	a.state.TailscaleClientSecret = ""
 	t.Setenv("TS_AUTHKEY", "")
 
-	err := restoreConnectivity(a)
+	err := restoreConnectivity(context.Background(), a)
 	if err == nil {
 		t.Fatal("expected error when SetPublicSSH fails")
 	}
@@ -443,7 +444,7 @@ func TestRestoreConnectivity_TailscalePeerNotFound_OpensPublicSSH(t *testing.T) 
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -490,7 +491,7 @@ func TestRestoreConnectivity_TSAuthKeyEnv(t *testing.T) {
 	a.state.PublicSSHClosed = true
 	t.Setenv("TS_AUTHKEY", "tskey-auth-from-env")
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -651,7 +652,7 @@ func TestRestoreConnectivity_FullDownUpCycle(t *testing.T) {
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
 
-	if err := restoreConnectivity(a); err != nil {
+	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
@@ -663,5 +664,244 @@ func TestRestoreConnectivity_FullDownUpCycle(t *testing.T) {
 	}
 	if a.state.PublicSSHClosed != true {
 		t.Error("PublicSSHClosed should stay true — Tailscale succeeded, no need to open SSH")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// sanitizeAuthKey tests
+// ---------------------------------------------------------------------------
+
+func TestSanitizeAuthKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"alphanumeric", "tskey-auth-abc123XYZ", "tskey-auth-abc123XYZ"},
+		{"with dashes and underscores", "tskey_auth-abc-123_XYZ", "tskey_auth-abc-123_XYZ"},
+		{"strips single quotes", "tskey'auth", "tskeyauth"},
+		{"strips double quotes", `tskey"auth`, "tskeyauth"},
+		{"strips backticks", "tskey`auth", "tskeyauth"},
+		{"strips semicolons", "tskey;rm-rf", "tskeyrm-rf"},
+		{"strips dollar sign", "tskey$var", "tskeyvar"},
+		{"strips backslash", `tskey\auth`, "tskeyauth"},
+		{"strips spaces", "ts key auth", "tskeyauth"},
+		{"strips pipe", "tskey|evil", "tskeyevil"},
+		{"strips ampersand", "tskey&&evil", "tskeyevil"},
+		{"empty string", "", ""},
+		{"only special chars", "';\"`|&", ""},
+		{"dots stripped", "ts.key", "tskey"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeAuthKey(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeAuthKey(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeAuthKey_StripsWithWarning(t *testing.T) {
+	key := sanitizeAuthKey("tskey'inject")
+	if key != "tskeyinject" {
+		t.Errorf("expected stripped key, got %q", key)
+	}
+}
+
+func TestIsSafeAuthKeyChar(t *testing.T) {
+	safe := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+	for _, r := range safe {
+		if !isSafeAuthKeyChar(r) {
+			t.Errorf("expected %q to be safe", r)
+		}
+	}
+	unsafe := "'\"`;$\\|&!(){}[]<> \t\n"
+	for _, r := range unsafe {
+		if isSafeAuthKeyChar(r) {
+			t.Errorf("expected %q to be unsafe", r)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// syncConnection error propagation tests
+// ---------------------------------------------------------------------------
+
+func TestSyncConnection_SavesState(t *testing.T) {
+	mock := &mockAzureClient{}
+	a := newTestAppContext(t, mock)
+
+	info := azure.Info{
+		Exists:     true,
+		PublicIP:   "1.2.3.4",
+		FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+		VMSize:     "Standard_B2als_v2",
+		PowerState: "VM running",
+	}
+	if err := a.syncConnection(info); err != nil {
+		t.Fatalf("syncConnection: %v", err)
+	}
+	if a.state.Connection.PublicIP != "1.2.3.4" {
+		t.Errorf("Connection.PublicIP = %q, want 1.2.3.4", a.state.Connection.PublicIP)
+	}
+	if a.state.Connection.VMSize != "Standard_B2als_v2" {
+		t.Errorf("Connection.VMSize = %q, want Standard_B2als_v2", a.state.Connection.VMSize)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// doDown state persistence tests
+// ---------------------------------------------------------------------------
+
+func TestDoDown_Delete_SavesState(t *testing.T) {
+	mock := &mockAzureClient{
+		downFn: func(_, _ bool) (azure.Info, error) {
+			return azure.Info{}, nil
+		},
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{Exists: true, PowerState: "VM running"}, nil
+		},
+		runCommandFn: func(_ string) error { return nil },
+	}
+
+	a := newTestAppContext(t, mock)
+	a.state.PublicSSHClosed = true
+	a.state.AnsibleApplied = true
+
+	if err := doDown(a, true, true); err != nil {
+		t.Fatalf("doDown: %v", err)
+	}
+	if a.state.PublicSSHClosed {
+		t.Error("PublicSSHClosed should be false after delete")
+	}
+	if a.state.AnsibleApplied {
+		t.Error("AnsibleApplied should be false after delete")
+	}
+	if a.state.Connection.Exists {
+		t.Error("Connection.Exists should be false after delete")
+	}
+}
+
+func TestDoDown_Deallocate_SyncsConnection(t *testing.T) {
+	mock := &mockAzureClient{
+		downFn: func(_, _ bool) (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM deallocated",
+				PublicIP:   "1.2.3.4",
+			}, nil
+		},
+	}
+
+	a := newTestAppContext(t, mock)
+	if err := doDown(a, false, true); err != nil {
+		t.Fatalf("doDown: %v", err)
+	}
+	if a.state.Connection.PowerState != "VM deallocated" {
+		t.Errorf("Connection.PowerState = %q, want VM deallocated", a.state.Connection.PowerState)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// doDisk state persistence tests
+// ---------------------------------------------------------------------------
+
+func TestDoDisk_AlreadyCorrectSize_SavesState(t *testing.T) {
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{Exists: true, DiskSizeGB: 50}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+	if err := doDisk(a, 50, true); err != nil {
+		t.Fatalf("doDisk: %v", err)
+	}
+	if a.state.DiskSizeGB != 50 {
+		t.Errorf("DiskSizeGB = %d, want 50", a.state.DiskSizeGB)
+	}
+}
+
+func TestDoDisk_NoVM_RecordsSize(t *testing.T) {
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{Exists: false}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+	if err := doDisk(a, 100, true); err != nil {
+		t.Fatalf("doDisk: %v", err)
+	}
+	if a.state.DiskSizeGB != 100 {
+		t.Errorf("DiskSizeGB = %d, want 100", a.state.DiskSizeGB)
+	}
+}
+
+func TestDoDisk_CannotShrink(t *testing.T) {
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{Exists: true, DiskSizeGB: 100}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+	err := doDisk(a, 50, true)
+	if err == nil {
+		t.Fatal("expected error when shrinking disk")
+	}
+	if !contains(err.Error(), "cannot shrink") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoDisk_MinimumSize(t *testing.T) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	err := doDisk(a, 10, true)
+	if err == nil {
+		t.Fatal("expected error for disk size below minimum")
+	}
+	if !contains(err.Error(), "at least 30 GiB") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// restoreConnectivity context cancellation tests
+// ---------------------------------------------------------------------------
+
+func TestRestoreConnectivity_ContextCancelled(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origGetAuthKey := tsGetAuthKey
+	origPollCount := restoreConnectivityPollCount
+	origPollWait := restoreConnectivityPollWait
+	defer func() {
+		tsFindPeer = origFindPeer
+		tsGetAuthKey = origGetAuthKey
+		restoreConnectivityPollCount = origPollCount
+		restoreConnectivityPollWait = origPollWait
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
+	}
+	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-test", nil
+	}
+	restoreConnectivityPollCount = 100
+	restoreConnectivityPollWait = 1 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mock := &mockAzureClient{
+		runCommandFn: func(_ string) error { return nil },
+		setPublicSSHFn: func(_ bool) error {
+			return nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+	a.state.PublicSSHClosed = true
+
+	if err := restoreConnectivity(ctx, a); err != nil {
+		t.Fatalf("restoreConnectivity with cancelled context: %v", err)
 	}
 }

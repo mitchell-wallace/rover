@@ -275,7 +275,7 @@ func (s *State) Save() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(s, "", "  ")

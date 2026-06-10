@@ -44,7 +44,10 @@ func init() {
 }
 
 func printConfig(st *config.State) {
-	p, _ := config.Path()
+	p, err := config.Path()
+	if err != nil {
+		p = "(error: " + err.Error() + ")"
+	}
 	fmt.Printf("Rover config (%s)\n", p)
 	fmt.Printf("  subscription:    %s\n", orDefault(st.Subscription, "(az default)"))
 	fmt.Printf("  resource group:  %s\n", st.ResourceGroup)
