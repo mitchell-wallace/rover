@@ -17,6 +17,17 @@ import (
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
 
+// Overridable for testing. Production code leaves these at their defaults.
+var (
+	tsFindPeer   = tailscale.FindPeer
+	tsGetAuthKey = tailscale.GetAuthKey
+
+	// restoreConnectivityPollCount controls how many times restoreConnectivity
+	// polls for the Tailscale peer. Override in tests to avoid sleeps.
+	restoreConnectivityPollCount = 12
+	restoreConnectivityPollWait  = 5 * time.Second
+)
+
 // syncConnection persists the latest connection snapshot into state.
 func (a *appContext) syncConnection(info azure.Info) {
 	a.state.Connection = configConnFrom(info)
@@ -49,7 +60,7 @@ func tailscaleReady(st *config.State) bool {
 	if os.Getenv("TS_AUTHKEY") == "" && !st.HasTSOAuth() {
 		return false
 	}
-	_, err := tailscale.FindPeer(st.TSHostname())
+	_, err := tsFindPeer(st.TSHostname())
 	if err == nil {
 		return true
 	}
@@ -73,7 +84,7 @@ func restoreConnectivity(a *appContext) error {
 		authKey = key
 	} else if a.state.HasTSOAuth() {
 		ui.Info("Generating Tailscale auth key...")
-		key, err := tailscale.GetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
+		key, err := tsGetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
 		if err != nil {
 			ui.Warn("Failed to generate Tailscale auth key: %v", err)
 		} else {
@@ -93,9 +104,9 @@ func restoreConnectivity(a *appContext) error {
 
 		ui.Info("Waiting for Tailscale peer to come online...")
 		tshost := a.state.TSHostname()
-		for i := 0; i < 12; i++ {
-			time.Sleep(5 * time.Second)
-			if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
+		for i := 0; i < restoreConnectivityPollCount; i++ {
+			time.Sleep(restoreConnectivityPollWait)
+			if peer, err := tsFindPeer(tshost); err == nil && peer.Online {
 				ui.Info("Tailscale re-authenticated — VM reachable via 'rover connect'.")
 				return nil
 			}
@@ -457,7 +468,7 @@ func doProvision(a *appContext) error {
 		ui.Info("TS_AUTHKEY detected in environment — VM will join your tailnet as %q.", a.state.TSHostname())
 	} else if a.state.HasTSOAuth() {
 		ui.Info("Generating Tailscale auth key via OAuth client for hostname %q...", a.state.TSHostname())
-		key, err := tailscale.GetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
+		key, err := tsGetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
 		if err != nil {
 			return fmt.Errorf("generate tailscale auth key: %w", err)
 		}
@@ -467,16 +478,14 @@ func doProvision(a *appContext) error {
 		ui.Info("Tailscale credentials not set (TS_AUTHKEY or OAuth client ID/secret) — skipping Tailscale.")
 	}
 
-	// If we got an auth key, temporarily set it in the environment so Ansible's lookup works.
 	if authKey != "" {
 		_ = os.Setenv("TS_AUTHKEY", authKey)
 		defer func() { _ = os.Unsetenv("TS_AUTHKEY") }()
 	}
 
-	// 2. Decide connection host for Ansible (use Tailscale IP/DNS if already online)
 	host := info.Host()
 	tshost := a.state.TSHostname()
-	if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
+	if peer, err := tsFindPeer(tshost); err == nil && peer.Online {
 		target := peer.Target()
 		ui.Info("Tailscale connection active. Provisioning over Tailscale (%s)...", target)
 		host = target
@@ -513,7 +522,7 @@ func doProvision(a *appContext) error {
 	// prompt — the decision to require Tailscale was made at 'rover up' time.
 	if authKey != "" || usingOAuth {
 		ui.Info("Verifying Tailscale connection to VM...")
-		if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
+		if peer, err := tsFindPeer(tshost); err == nil && peer.Online {
 			ui.Info("Tailscale connection verified.")
 			if a.state.PublicSSHClosed {
 				ui.Info("Public SSH already closed — VM reachable only over Tailscale.")
@@ -539,7 +548,7 @@ func doProvision(a *appContext) error {
 // doConnect connects to the VM over Tailscale if it is online in the tailnet.
 func doConnect(a *appContext, extra ...string) error {
 	host := a.state.TSHostname()
-	peer, err := tailscale.FindPeer(host)
+	peer, err := tsFindPeer(host)
 	if err != nil {
 		var notFound *tailscale.PeerNotFoundError
 		switch {

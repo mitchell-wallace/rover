@@ -42,10 +42,23 @@ func Execute(v string) error {
 	return nil
 }
 
+// azureProvider is the subset of Azure operations used by command handlers.
+// The concrete *azure.Client satisfies this interface; tests provide mocks.
+type azureProvider interface {
+	Up(family, size string) (azure.Info, error)
+	Down(del, yes bool) (azure.Info, error)
+	Status() (azure.Info, error)
+	ResizeDisk(gb int) (azure.Info, error)
+	Info() (azure.Info, error)
+	SSH(extra ...string) error
+	SetPublicSSH(allowed bool) error
+	RunCommand(script string) error
+}
+
 // appContext bundles the loaded state and a ready Azure client.
 type appContext struct {
 	state    *config.State
-	azure    *azure.Client
+	azure    azureProvider
 	assetDir string
 }
 
