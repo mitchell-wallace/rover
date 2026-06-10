@@ -57,6 +57,62 @@ func tailscaleReady(st *config.State) bool {
 	return errors.As(err, &notFound)
 }
 
+// restoreConnectivity ensures the user can reach the VM after a start/resize.
+// If public SSH was locked down (Tailscale-only) but Tailscale is offline, it
+// tries to re-authenticate Tailscale inside the VM via Azure Run Command. If
+// that fails or credentials are unavailable, it opens public SSH as a fallback.
+func restoreConnectivity(a *appContext) error {
+	if !a.state.PublicSSHClosed {
+		return nil
+	}
+
+	ui.Info("Public SSH is locked down — restoring Tailscale connectivity...")
+
+	var authKey string
+	if key := os.Getenv("TS_AUTHKEY"); key != "" {
+		authKey = key
+	} else if a.state.HasTSOAuth() {
+		ui.Info("Generating Tailscale auth key...")
+		key, err := tailscale.GetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
+		if err != nil {
+			ui.Warn("Failed to generate Tailscale auth key: %v", err)
+		} else {
+			authKey = key
+		}
+	}
+
+	if authKey != "" {
+		ui.Info("Re-authenticating Tailscale inside the VM...")
+		script := fmt.Sprintf(
+			`sudo tailscale up --authkey='%s' --ssh --hostname='%s' --advertise-tags='%s' 2>&1 || true`,
+			authKey, a.state.TSHostname(), a.state.TSTags(),
+		)
+		if err := a.azure.RunCommand(script); err != nil {
+			ui.Warn("Tailscale re-auth via Azure Run Command failed: %v", err)
+		}
+
+		ui.Info("Waiting for Tailscale peer to come online...")
+		tshost := a.state.TSHostname()
+		for i := 0; i < 12; i++ {
+			time.Sleep(5 * time.Second)
+			if peer, err := tailscale.FindPeer(tshost); err == nil && peer.Online {
+				ui.Info("Tailscale re-authenticated — VM reachable via 'rover connect'.")
+				return nil
+			}
+		}
+		ui.Warn("Tailscale peer did not come online after 60s.")
+	}
+
+	ui.Warn("Opening public SSH as fallback (Tailscale not available).")
+	if err := a.azure.SetPublicSSH(true); err != nil {
+		return fmt.Errorf("failed to open public SSH: %w", err)
+	}
+	a.state.PublicSSHClosed = false
+	_ = a.state.Save()
+	ui.Info("Public SSH opened on port %d. Run 'rover provision' to re-establish Tailscale.", a.state.SSHPort())
+	return nil
+}
+
 // doUp provisions/redeploys the VM at the given family/size. On a fresh create it
 // auto-provisions (unless noProvision) and, when Tailscale is ready, locks the VM
 // down to Tailscale-only SSH.
@@ -138,6 +194,13 @@ func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error
 	fmt.Println()
 	ui.Info("VM is up: %s (%s)", info.VMName, info.PowerState)
 	printInfo(info)
+
+	if !fresh {
+		fmt.Println()
+		if err := restoreConnectivity(a); err != nil {
+			return err
+		}
+	}
 
 	if willProvision {
 		fmt.Println()
