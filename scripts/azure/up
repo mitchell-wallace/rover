@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # rover up [small|medium|large] [--json]
 #
-# Provisions (or re-deploys) the single Rover-managed VM via Bicep.
-# Enforces one active VM at a time: refuses if a VM already exists with a
-# different size unless you bring it down first.
+# Provisions (or starts/resizes) the single Rover-managed VM.
+# - New VM: full Bicep deployment (creates RG, network, disk, VM).
+# - Existing VM, same size: just starts it (az vm start).
+# - Existing VM, different size: resizes then starts.
 set -euo pipefail
 # shellcheck source=scripts/azure/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -26,56 +27,78 @@ az_init
 
 [ -f "${ROVER_SSH_PUBKEY}" ] || die "SSH public key not found: ${ROVER_SSH_PUBKEY} (generate one with: ssh-keygen -t ed25519)"
 
-# Enforce one active VM at a time.
 state="$(vm_power_state)"
+target_sku="$(sku_for "${FAMILY}" "${SIZE}")"
+
 if [ "${state}" != "absent" ]; then
   existing_size="$(azx vm show -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" --query 'hardwareProfile.vmSize' -o tsv 2>/dev/null || echo '')"
   warn "A Rover VM already exists: ${ROVER_VM_NAME} (${existing_size}, ${state})."
-  warn "Rover manages one VM at a time. Re-running 'up ${SIZE}' will redeploy/resize it in place."
-fi
 
-log "Cost notice: starting a VM incurs Azure compute charges while it runs."
-log "Deploying ${ROVER_VM_NAME} (${FAMILY}/${SIZE}) into ${ROVER_RESOURCE_GROUP} @ ${ROVER_LOCATION}..."
-
-ensure_providers
-
-if ! rg_exists; then
-  log "Creating resource group ${ROVER_RESOURCE_GROUP}..."
-  azx group create --name "${ROVER_RESOURCE_GROUP}" --location "${ROVER_LOCATION}" -o none
-fi
-
-PUBKEY_CONTENT="$(cat "${ROVER_SSH_PUBKEY}")"
-
-if ! deploy_err="$(azx deployment group create \
-  --resource-group "${ROVER_RESOURCE_GROUP}" \
-  --name "${ROVER_DEPLOYMENT_NAME}" \
-  --template-file "${ROVER_BICEP}" \
-  --parameters \
-    location="${ROVER_LOCATION}" \
-    vmName="${ROVER_VM_NAME}" \
-    adminUsername="${ROVER_ADMIN_USER}" \
-    sshPublicKey="${PUBKEY_CONTENT}" \
-    family="${FAMILY}" \
-    size="${SIZE}" \
-    osDiskSizeGB="${ROVER_DISK_GB}" \
-    sshPort="${ROVER_SSH_PORT}" \
-    publicSshAccess="${ROVER_PUBLIC_SSH_ACCESS:-Allow}" \
-  -o none 2>&1)"; then
-  printf '%s\n' "${deploy_err}" >&2
-  if printf '%s' "${deploy_err}" | grep -q "QuotaExceeded"; then
-    err "Azure core quota exceeded for this VM family in ${ROVER_LOCATION}."
-    err "Request an increase (Portal: Subscriptions > Usage + quotas) or pick a"
-    err "region/SKU with quota and edit infra/bicep/main.bicep. See README 'Quota'."
-  elif printf '%s' "${deploy_err}" | grep -q "SkuNotAvailable"; then
-    err "The '${SIZE}' VM size is not available in ${ROVER_LOCATION} right now."
-    err "Try a different region (rover config --edit) or size."
-  elif printf '%s' "${deploy_err}" | grep -qi "shrink\|cannot be smaller\|decrease"; then
-    err "The OS disk cannot be shrunk. Set disk size >= current with 'rover disk <GB>'."
+  if [ "${existing_size}" = "${target_sku}" ]; then
+    if is_running "${state}"; then
+      log "VM is already running as ${existing_size}. Nothing to do."
+    else
+      log "Cost notice: starting a VM incurs Azure compute charges while it runs."
+      log "Starting ${ROVER_VM_NAME}..."
+      azx vm start -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+      log "VM started."
+    fi
+  else
+    log "Cost notice: starting a VM incurs Azure compute charges while it runs."
+    if is_running "${state}"; then
+      log "Deallocating ${ROVER_VM_NAME} for resize..."
+      azx vm deallocate -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+    fi
+    log "Resizing ${ROVER_VM_NAME} from ${existing_size} to ${target_sku}..."
+    azx vm resize -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" --size "${target_sku}" -o none
+    log "Starting ${ROVER_VM_NAME}..."
+    azx vm start -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+    log "VM resized and started."
   fi
-  exit 1
-fi
+else
+  log "Cost notice: starting a VM incurs Azure compute charges while it runs."
+  log "Deploying ${ROVER_VM_NAME} (${FAMILY}/${SIZE}) into ${ROVER_RESOURCE_GROUP} @ ${ROVER_LOCATION}..."
 
-log "Deployment complete."
+  ensure_providers
+
+  if ! rg_exists; then
+    log "Creating resource group ${ROVER_RESOURCE_GROUP}..."
+    azx group create --name "${ROVER_RESOURCE_GROUP}" --location "${ROVER_LOCATION}" -o none
+  fi
+
+  PUBKEY_CONTENT="$(cat "${ROVER_SSH_PUBKEY}")"
+
+  if ! deploy_err="$(azx deployment group create \
+    --resource-group "${ROVER_RESOURCE_GROUP}" \
+    --name "${ROVER_DEPLOYMENT_NAME}" \
+    --template-file "${ROVER_BICEP}" \
+    --parameters \
+      location="${ROVER_LOCATION}" \
+      vmName="${ROVER_VM_NAME}" \
+      adminUsername="${ROVER_ADMIN_USER}" \
+      sshPublicKey="${PUBKEY_CONTENT}" \
+      family="${FAMILY}" \
+      size="${SIZE}" \
+      osDiskSizeGB="${ROVER_DISK_GB}" \
+      sshPort="${ROVER_SSH_PORT}" \
+      publicSshAccess="${ROVER_PUBLIC_SSH_ACCESS:-Allow}" \
+    -o none 2>&1)"; then
+    printf '%s\n' "${deploy_err}" >&2
+    if printf '%s' "${deploy_err}" | grep -q "QuotaExceeded"; then
+      err "Azure core quota exceeded for this VM family in ${ROVER_LOCATION}."
+      err "Request an increase (Portal: Subscriptions > Usage + quotas) or pick a"
+      err "region/SKU with quota and edit infra/bicep/main.bicep. See README 'Quota'."
+    elif printf '%s' "${deploy_err}" | grep -q "SkuNotAvailable"; then
+      err "The '${SIZE}' VM size is not available in ${ROVER_LOCATION} right now."
+      err "Try a different region (rover config --edit) or size."
+    elif printf '%s' "${deploy_err}" | grep -qi "shrink\|cannot be smaller\|decrease"; then
+      err "The OS disk cannot be shrunk. Set disk size >= current with 'rover disk <GB>'."
+    fi
+    exit 1
+  fi
+
+  log "Deployment complete."
+fi
 
 if [ "${JSON}" = "1" ]; then
   emit_connection_info

@@ -129,6 +129,30 @@ emit_connection_info() {
 JSON
 }
 
+# Maps family:size to the Azure VM SKU. Keep in sync with main.bicep and
+# internal/sizes/sizes.go.
+sku_for() {
+  local family="$1" size="$2"
+  case "${family}:${size}" in
+    burstable:xsmall) echo "Standard_B2als_v2" ;;
+    burstable:small)  echo "Standard_B2as_v2" ;;
+    burstable:medium) echo "Standard_B4als_v2" ;;
+    burstable:large)  echo "Standard_B4as_v2" ;;
+    balanced:small)   echo "Standard_D2as_v7" ;;
+    balanced:medium)  echo "Standard_D4as_v7" ;;
+    balanced:large)   echo "Standard_D8as_v7" ;;
+    ramheavy:small)   echo "Standard_E2as_v7" ;;
+    ramheavy:medium)  echo "Standard_E4as_v7" ;;
+    ramheavy:large)   echo "Standard_E8as_v7" ;;
+    *) die "unknown family:size combo: ${family}:${size}" ;;
+  esac
+}
+
+# True if the VM power state indicates the VM is running.
+is_running() {
+  echo "$1" | grep -qi "running"
+}
+
 # True if the first arg matches a flag in the remaining args.
 has_flag() {
   local needle="$1"; shift

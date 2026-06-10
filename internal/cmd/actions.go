@@ -127,10 +127,13 @@ func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error
 	a.state.Size = size
 	a.syncConnection(info)
 
-	// A (re)deployed VM presents a fresh host key on the same FQDN; drop stale
+	// A freshly created VM presents a new host key on the same FQDN; drop stale
 	// known_hosts entries so 'rover ssh' connects without a verification failure.
-	scrubKnownHosts(info.FQDN, a.state.SSHPort())
-	scrubKnownHosts(info.PublicIP, a.state.SSHPort())
+	// Starting or resizing an existing VM does not change the host key.
+	if fresh {
+		scrubKnownHosts(info.FQDN, a.state.SSHPort())
+		scrubKnownHosts(info.PublicIP, a.state.SSHPort())
+	}
 
 	fmt.Println()
 	ui.Info("VM is up: %s (%s)", info.VMName, info.PowerState)
