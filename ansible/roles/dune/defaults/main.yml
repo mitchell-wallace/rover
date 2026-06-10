@@ -4,7 +4,7 @@ target_user: "{{ ansible_user }}"
 user_home: "/home/{{ target_user }}"
 
 # Pinned versions for tools installed from GitHub releases (amd64 hosts).
-lazydocker_version: "0.24.1"
+lazydocker_version: "0.25.2"
 gitui_version: "0.27.0"
 
 # Quality-of-life packages installed alongside the required toolset.

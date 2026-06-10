@@ -84,6 +84,12 @@
     update_cache: true
 
 # --- lazydocker (GitHub release) -------------------------------------------
+- name: Check lazydocker version
+  ansible.builtin.command: /usr/local/bin/lazydocker --version
+  register: lazydocker_installed
+  changed_when: false
+  failed_when: false
+
 - name: Install lazydocker
   ansible.builtin.unarchive:
     src: "https://github.com/jesseduffield/lazydocker/releases/download/v{{ lazydocker_version }}/lazydocker_{{ lazydocker_version }}_Linux_{{ 'x86_64' if ansible_architecture == 'x86_64' else 'arm64' }}.tar.gz"
@@ -92,7 +98,7 @@
     include:
       - lazydocker
     mode: "0755"
-    creates: /usr/local/bin/lazydocker
+  when: "lazydocker_installed.rc != 0 or ('Version: ' ~ lazydocker_version) not in lazydocker_installed.stdout"
 
 # --- gitui (GitHub release) ------------------------------------------------
 - name: Install gitui
