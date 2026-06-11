@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# rover-halt — deallocate this Azure VM from inside the VM itself.
+#
+# Uses the VM's system-assigned managed identity to authenticate via IMDS
+# (Instance Metadata Service). No secrets or Azure CLI required.
+#
+# Usage:
+#   rover-halt                    # deallocate now
+#   sleep 2h && rover-halt        # deallocate after 2 hours (e.g. in tmux)
+set -euo pipefail
+
+IMDS="http://169.254.169.254/metadata"
+
+token=$(curl -sf -H "Metadata: true" \
+  "${IMDS}/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" \
+  | jq -r '.access_token') || {
+  echo "rover-halt: failed to acquire managed identity token." >&2
+  echo "  Is the VM deployed with a system-assigned managed identity?" >&2
+  exit 1
+}
+
+meta=$(curl -sf -H "Metadata: true" \
+  "${IMDS}/instance?api-version=2021-02-01")
+sub=$(echo "$meta" | jq -r '.compute.subscriptionId')
+rg=$(echo "$meta" | jq -r '.compute.resourceGroupName')
+vm=$(echo "$meta" | jq -r '.compute.name')
+
+echo "rover: halting VM ${vm} in ${rg}..."
+
+# Fire-and-forget: the deallocate call will kill this machine's network,
+# so we background it with a short delay. The SSH session exits cleanly
+# before the VM shuts down.
+(
+  sleep 2
+  curl -sf -X POST \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Length: 0" \
+    "https://management.azure.com/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Compute/virtualMachines/${vm}/deallocate?api-version=2023-09-01" \
+    >/dev/null 2>&1 || true
+) &
+disown
+
+echo "rover: VM will deallocate in ~2 seconds. Goodbye."
+exit 0

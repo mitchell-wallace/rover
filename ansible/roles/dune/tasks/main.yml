@@ -156,3 +156,10 @@
     executable: /bin/bash
   when: not dune_check.stat.exists
   changed_when: true
+
+# --- rover-halt (self-deallocate) -------------------------------------------
+- name: Install rover-halt
+  ansible.builtin.copy:
+    src: rover-halt
+    dest: /usr/local/bin/rover-halt
+    mode: "0755"

@@ -176,6 +176,9 @@ resource nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
 resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
   name: vmName
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     hardwareProfile: {
       vmSize: vmSize
@@ -219,6 +222,22 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
         }
       ]
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Allow the VM to deallocate itself via rover-halt (uses IMDS + managed
+// identity). Scoped to this resource group with the built-in Virtual Machine
+// Contributor role — broad enough to start/stop/deallocate, but the RG only
+// holds this one VM so the blast radius is minimal. The role assignment is
+// implicitly dependent on the VM (Bicep sees vm.identity.principalId).
+// ---------------------------------------------------------------------------
+resource vmSelfDeallocate 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(vm.id, 'rover-vm-contributor')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '9980e02c-c2be-4d73-94e8-173b1dc7cf3c')
+    principalId: vm.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 

@@ -46,7 +46,7 @@ rover (Go CLI)
 
 infra/bicep/main.bicep        size profiles, network, VM, cloud-init
 infra/cloud-init/             minimal first-boot prep for Ansible
-ansible/roles/dune/           Docker, dune, zsh+p10k, gh, lazydocker, gitui, ...
+ansible/roles/dune/           Docker, dune, zsh+p10k, gh, lazydocker, gitui, rover-halt, ...
 ansible/roles/tailscale/      optional tailnet join + Tailscale SSH (opt-in)
 scripts/azure/                up · down · status · ssh · ip (usable standalone)
 ```
@@ -303,6 +303,35 @@ charge (compute) while preserving the disk so `rover up` resumes quickly.
 `down --delete` is the only command that removes persistent resources, and it
 asks for confirmation (or `--yes` non-interactively).
 
+### Halting from inside the VM
+
+Provisioned VMs include a `rover-halt` command that deallocates the VM from
+within — no Azure credentials on the VM, no laptop required. It uses the VM's
+system-assigned managed identity and the Azure Instance Metadata Service
+(IMDS) to authenticate and self-deallocate.
+
+```sh
+rover-halt                    # deallocate now
+sleep 2h && rover-halt        # deallocate after 2 hours (e.g. in tmux/zellij)
+```
+
+This is useful for scheduling shutdowns after long-running tasks:
+
+```sh
+# Inside the VM, in a tmux session:
+dune run my-agent-task && rover-halt   # halt when the task finishes
+```
+
+The command prints a goodbye message, forks a background deallocate call, and
+exits cleanly. Your SSH session drops ~2 seconds later as the VM shuts down.
+Resume later with `rover up` from your laptop.
+
+> **Note:** `rover-halt` requires Owner-level permissions on your Azure
+> subscription for the initial deployment (to create the managed identity and
+> role assignment). If the deployment fails with a permissions error, the VM
+> still works — just without `rover-halt`. You can add the role assignment
+> manually later.
+
 ## Cost warnings
 
 Rover warns before costly/destructive actions, but you own the bill:
@@ -332,7 +361,7 @@ an increase (a few cores is plenty):
 
 - **Azure only.** No multi-cloud, by design.
 - **One VM at a time.** No multi-VM orchestration, locking, or daemon.
-- **No automatic shutdown / idle detection.** Remember to `rover down`.
+- **No automatic shutdown / idle detection.** Remember to `rover down`, or schedule a halt from inside the VM with `rover-halt`.
 - **No remote Dune/Rally session detection.** Future work: warn before bringing
   down a VM with an active session, and cost/cleanup reminders.
 - **Not integrated into Dune** yet — Rover is standalone for now.
