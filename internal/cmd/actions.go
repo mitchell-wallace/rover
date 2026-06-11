@@ -82,7 +82,7 @@ func restoreConnectivity(ctx context.Context, a *appContext) error {
 		ui.Info("Re-authenticating Tailscale inside the VM...")
 		script := fmt.Sprintf(
 			`sudo tailscale up --authkey='%s' --ssh --hostname='%s' --advertise-tags='%s' 2>&1 || true`,
-			authKey, a.state.TSHostname(), a.state.TSTags(),
+			authKey, sanitizeShellArg(a.state.TSHostname()), sanitizeShellArg(a.state.TSTags()),
 		)
 		if err := a.azure.RunCommand(script); err != nil {
 			ui.Warn("Tailscale re-auth via Azure Run Command failed: %v", err)
@@ -137,6 +137,15 @@ func sanitizeAuthKey(key string) string {
 
 func isSafeAuthKeyChar(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_'
+}
+
+func sanitizeShellArg(s string) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ':' || r == '.' {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error {

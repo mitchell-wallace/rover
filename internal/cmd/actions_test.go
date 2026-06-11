@@ -1123,3 +1123,156 @@ func TestDoCommand_CommandFailure(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestDoCommand_StatusError(t *testing.T) {
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{}, errors.New("az cli not found")
+		},
+	}
+	a := newTestAppContext(t, mock)
+	err := doCommand(a, []string{"ls"})
+	if err == nil {
+		t.Fatal("expected error when status fails")
+	}
+	if !contains(err.Error(), "az cli not found") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoCommand_EmptyHost_SSHFallback(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+
+	runRemoteCommandFn = func(_ string, _ ...string) error {
+		return nil
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	err := doCommand(a, []string{"ls"})
+	if err == nil {
+		t.Fatal("expected error when no connection target available")
+	}
+	if !contains(err.Error(), "no connection target") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoCommand_TailscaleNotInstalled_FallsBackToSSH(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, tailscale.ErrNotInstalled
+	}
+
+	var calledName string
+	runRemoteCommandFn = func(name string, _ ...string) error {
+		calledName = name
+		return nil
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+				FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	if err := doCommand(a, []string{"ls"}); err != nil {
+		t.Fatalf("doCommand: %v", err)
+	}
+	if calledName != "ssh" {
+		t.Errorf("expected ssh fallback when tailscale not installed, got %q", calledName)
+	}
+}
+
+func TestDoCommand_EmptyArgs(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+
+	var calledArgs []string
+	runRemoteCommandFn = func(_ string, args ...string) error {
+		calledArgs = args
+		return nil
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+				FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	if err := doCommand(a, []string{}); err != nil {
+		t.Fatalf("doCommand with empty args: %v", err)
+	}
+	lastArg := calledArgs[len(calledArgs)-1]
+	if lastArg != "" {
+		t.Errorf("expected empty command string, got %q", lastArg)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// sanitizeShellArg tests
+// ---------------------------------------------------------------------------
+
+func TestSanitizeShellArg(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"rover-vm", "rover-vm"},
+		{"tag:rover", "tag:rover"},
+		{"rover-vm.tailnet.ts.net", "rover-vm.tailnet.ts.net"},
+		{"rover';rm -rf /", "roverrm-rf"},
+		{`rover"$(evil)`, "roverevil"},
+		{"clean_name-123", "clean_name-123"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := sanitizeShellArg(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeShellArg(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

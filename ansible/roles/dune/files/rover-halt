@@ -9,6 +9,13 @@
 #   sleep 2h && rover-halt        # deallocate after 2 hours (e.g. in tmux)
 set -euo pipefail
 
+for cmd in curl jq; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "rover-halt: '$cmd' is required but not installed." >&2
+    exit 1
+  fi
+done
+
 IMDS="http://169.254.169.254/metadata"
 
 token=$(curl -sf -H "Metadata: true" \
@@ -24,6 +31,12 @@ meta=$(curl -sf -H "Metadata: true" \
 sub=$(echo "$meta" | jq -r '.compute.subscriptionId')
 rg=$(echo "$meta" | jq -r '.compute.resourceGroupName')
 vm=$(echo "$meta" | jq -r '.compute.name')
+
+if [[ -z "$sub" || -z "$rg" || -z "$vm" ]]; then
+  echo "rover-halt: failed to extract VM identity from IMDS." >&2
+  echo "  subscriptionId='${sub}', resourceGroupName='${rg}', name='${vm}'" >&2
+  exit 1
+fi
 
 echo "rover: halting VM ${vm} in ${rg}..."
 
