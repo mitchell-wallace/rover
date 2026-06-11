@@ -24,4 +24,5 @@ base_packages:
   - gnupg
 
 dune_install_url: "https://raw.githubusercontent.com/mitchell-wallace/dune/main/install.sh"
+thenn_install_url: "https://raw.githubusercontent.com/mitchell-wallace/thenn/main/install.sh"
 powerlevel10k_repo: "https://github.com/romkatv/powerlevel10k.git"

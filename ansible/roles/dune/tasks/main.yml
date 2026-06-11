@@ -157,6 +157,21 @@
   when: not dune_check.stat.exists
   changed_when: true
 
+# --- thenn (task scheduler) --------------------------------------------------
+- name: Check whether thenn is already installed
+  become_user: "{{ target_user }}"
+  ansible.builtin.stat:
+    path: "{{ user_home }}/.local/bin/thenn"
+  register: thenn_check
+
+- name: Install thenn
+  become_user: "{{ target_user }}"
+  ansible.builtin.shell: "curl -fsSL {{ thenn_install_url }} | bash"
+  args:
+    executable: /bin/bash
+  when: not thenn_check.stat.exists
+  changed_when: true
+
 # --- rover-halt (self-deallocate) -------------------------------------------
 - name: Install rover-halt
   ansible.builtin.copy:
