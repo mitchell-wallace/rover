@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -903,5 +904,222 @@ func TestRestoreConnectivity_ContextCancelled(t *testing.T) {
 
 	if err := restoreConnectivity(ctx, a); err != nil {
 		t.Fatalf("restoreConnectivity with cancelled context: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// doCommand tests
+// ---------------------------------------------------------------------------
+
+func TestDoCommand_NoVM(t *testing.T) {
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{Exists: false}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+	err := doCommand(a, []string{"ls"})
+	if err == nil {
+		t.Fatal("expected error when no VM")
+	}
+	if !contains(err.Error(), "no VM provisioned") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoCommand_VMNotRunning(t *testing.T) {
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{Exists: true, PowerState: "VM deallocated"}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+	err := doCommand(a, []string{"ls"})
+	if err == nil {
+		t.Fatal("expected error when VM not running")
+	}
+	if !contains(err.Error(), "not running") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoCommand_TailscalePreferred(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+
+	var calledName string
+	var calledArgs []string
+	runRemoteCommandFn = func(name string, args ...string) error {
+		calledName = name
+		calledArgs = args
+		return nil
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+				PublicIP:   "1.2.3.4",
+				FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	if err := doCommand(a, []string{"ls", "-la"}); err != nil {
+		t.Fatalf("doCommand: %v", err)
+	}
+
+	if calledName != "tailscale" {
+		t.Errorf("expected tailscale, got %q", calledName)
+	}
+	expectedTarget := "testuser@rover-vm.tail94a70e.ts.net"
+	if len(calledArgs) < 3 || calledArgs[0] != "ssh" || calledArgs[1] != expectedTarget {
+		t.Errorf("unexpected args: %v", calledArgs)
+	}
+	// Last arg should be the command string
+	if calledArgs[len(calledArgs)-1] != "ls -la" {
+		t.Errorf("expected command 'ls -la', got %q", calledArgs[len(calledArgs)-1])
+	}
+}
+
+func TestDoCommand_SSHFallback(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+
+	var calledName string
+	var calledArgs []string
+	runRemoteCommandFn = func(name string, args ...string) error {
+		calledName = name
+		calledArgs = args
+		return nil
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+				PublicIP:   "1.2.3.4",
+				FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+				SSHTarget:  "testuser@rover-vm.australiaeast.cloudapp.azure.com",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	if err := doCommand(a, []string{"uname", "-a"}); err != nil {
+		t.Fatalf("doCommand: %v", err)
+	}
+
+	if calledName != "ssh" {
+		t.Errorf("expected ssh, got %q", calledName)
+	}
+	// Should include -p, port, -o options, and the command
+	argsStr := strings.Join(calledArgs, " ")
+	if !contains(argsStr, "29472") {
+		t.Errorf("expected port 29472 in args: %v", calledArgs)
+	}
+	if !contains(argsStr, "BatchMode=yes") {
+		t.Errorf("expected BatchMode=yes in args: %v", calledArgs)
+	}
+	if calledArgs[len(calledArgs)-1] != "uname -a" {
+		t.Errorf("expected command 'uname -a', got %q", calledArgs[len(calledArgs)-1])
+	}
+}
+
+func TestDoCommand_SSHFallback_TailscaleOffline(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
+	}
+
+	var calledName string
+	runRemoteCommandFn = func(name string, _ ...string) error {
+		calledName = name
+		return nil
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+				FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	if err := doCommand(a, []string{"ls"}); err != nil {
+		t.Fatalf("doCommand: %v", err)
+	}
+
+	if calledName != "ssh" {
+		t.Errorf("expected ssh fallback when Tailscale peer is offline, got %q", calledName)
+	}
+}
+
+func TestDoCommand_CommandFailure(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origRunFn := runRemoteCommandFn
+	defer func() {
+		tsFindPeer = origFindPeer
+		runRemoteCommandFn = origRunFn
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+
+	runRemoteCommandFn = func(_ string, _ ...string) error {
+		return errors.New("exit status 1")
+	}
+
+	mock := &mockAzureClient{
+		statusFn: func() (azure.Info, error) {
+			return azure.Info{
+				Exists:     true,
+				PowerState: "VM running",
+				FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
+			}, nil
+		},
+	}
+	a := newTestAppContext(t, mock)
+
+	err := doCommand(a, []string{"false"})
+	if err == nil {
+		t.Fatal("expected error when remote command fails")
+	}
+	if !contains(err.Error(), "exit status 1") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

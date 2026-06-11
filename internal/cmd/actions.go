@@ -25,6 +25,8 @@ var (
 
 	restoreConnectivityPollCount = 12
 	restoreConnectivityPollWait  = 5 * time.Second
+
+	runRemoteCommandFn func(name string, args ...string) error
 )
 
 func (a *appContext) syncConnection(info azure.Info) error {
@@ -589,6 +591,62 @@ func doConnect(a *appContext, extra ...string) error {
 	target := peer.Target()
 	ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
 	return tailscale.Connect(a.state.AdminUsername, target, extra...)
+}
+
+func doCommand(a *appContext, args []string) error {
+	info, err := a.azure.Status()
+	if err != nil {
+		return err
+	}
+	if !info.Exists {
+		return fmt.Errorf("no VM provisioned; run 'rover up' first")
+	}
+	if !info.Running() {
+		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
+	}
+
+	cmdStr := strings.Join(args, " ")
+	runFn := runRemoteCommand
+	if runRemoteCommandFn != nil {
+		runFn = runRemoteCommandFn
+	}
+
+	if peer, perr := tsFindPeer(a.state.TSHostname()); perr == nil && peer.Online {
+		target := peer.Target()
+		ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
+		return runFn("tailscale",
+			"ssh", a.state.AdminUsername+"@"+target, "--", cmdStr)
+	}
+
+	host := info.Host()
+	if host == "" {
+		return fmt.Errorf("no connection target; run 'rover up' first")
+	}
+	ui.Info("Running over SSH (%s): %s", host, cmdStr)
+
+	sshArgs := []string{
+		"-p", strconv.Itoa(a.state.SSHPort()),
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "BatchMode=yes",
+	}
+	if pk := a.state.PrivateKeyPath(); pk != "" {
+		sshArgs = append(sshArgs, "-i", pk)
+	}
+	sshArgs = append(sshArgs, a.state.AdminUsername+"@"+host, "--", cmdStr)
+	return runFn("ssh", sshArgs...)
+}
+
+func runRemoteCommand(name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return nil
 }
 
 func printInfo(info azure.Info) {

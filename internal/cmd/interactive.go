@@ -54,6 +54,7 @@ func runInteractive() error {
 				huh.NewOption("Provision (Ansible)", "provision"),
 				huh.NewOption("SSH into VM", "ssh"),
 				huh.NewOption("Connect (Tailscale)", "connect"),
+				huh.NewOption("Command (run on VM)", "command"),
 				huh.NewOption("Down (deallocate)", "down"),
 				huh.NewOption("Delete all resources", "delete"),
 				huh.NewOption("Config", "config"),
@@ -99,6 +100,15 @@ func runInteractive() error {
 			err = doSSH(a)
 		case "connect":
 			err = doConnect(a)
+		case "command":
+			var cmdStr string
+			if err = huh.NewInput().
+				Title("Command to run on the VM").
+				Value(&cmdStr).
+				Run(); err == nil && cmdStr != "" {
+				fmt.Println()
+				err = doCommand(a, []string{cmdStr})
+			}
 		case "down":
 			err = doDown(a, false, false)
 		case "delete":
