@@ -22,6 +22,7 @@ import (
 var (
 	tsFindPeer   = tailscale.FindPeer
 	tsGetAuthKey = tailscale.GetAuthKey
+	tsConnect    = tailscale.Connect
 
 	restoreConnectivityPollCount = 12
 	restoreConnectivityPollWait  = 5 * time.Second
@@ -599,7 +600,7 @@ func doConnect(a *appContext, extra ...string) error {
 
 	target := peer.Target()
 	ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-	return tailscale.Connect(a.state.AdminUsername, target, extra...)
+	return tsConnect(a.state.AdminUsername, target, extra...)
 }
 
 func doCommand(a *appContext, args []string) error {

@@ -575,16 +575,7 @@ func TestInfoRunning(t *testing.T) {
 }
 
 func contains(s, sub string) bool {
-	return len(s) >= len(sub) && containsStr(s, sub)
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, sub)
 }
 
 // ---------------------------------------------------------------------------
@@ -1274,5 +1265,137 @@ func TestSanitizeShellArg(t *testing.T) {
 				t.Errorf("sanitizeShellArg(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// doConnect tests
+// ---------------------------------------------------------------------------
+
+func TestDoConnect_PeerOnline(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origConnect := tsConnect
+	defer func() {
+		tsFindPeer = origFindPeer
+		tsConnect = origConnect
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+
+	connectCalled := false
+	tsConnect = func(_, _ string, _ ...string) error {
+		connectCalled = true
+		return nil
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	if err := doConnect(a); err != nil {
+		t.Fatalf("doConnect with online peer: %v", err)
+	}
+	if !connectCalled {
+		t.Error("tsConnect was not called")
+	}
+}
+
+func TestDoConnect_PeerOffline(t *testing.T) {
+	orig := tsFindPeer
+	defer func() { tsFindPeer = orig }()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	err := doConnect(a)
+	if err == nil {
+		t.Fatal("expected error when peer is offline")
+	}
+	if !contains(err.Error(), "offline") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoConnect_PeerNotFound(t *testing.T) {
+	orig := tsFindPeer
+	defer func() { tsFindPeer = orig }()
+
+	tsFindPeer = func(host string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: host}
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	err := doConnect(a)
+	if err == nil {
+		t.Fatal("expected error when peer not found")
+	}
+	if !contains(err.Error(), "not reachable") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoConnect_TailscaleNotInstalled(t *testing.T) {
+	orig := tsFindPeer
+	defer func() { tsFindPeer = orig }()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, tailscale.ErrNotInstalled
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	err := doConnect(a)
+	if err == nil {
+		t.Fatal("expected error when tailscale not installed")
+	}
+	if !contains(err.Error(), "not found") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoConnect_TailscaleNotRunning(t *testing.T) {
+	orig := tsFindPeer
+	defer func() { tsFindPeer = orig }()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, tailscale.ErrNotRunning
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	err := doConnect(a)
+	if err == nil {
+		t.Fatal("expected error when tailscale not running")
+	}
+	if !contains(err.Error(), "not connected") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoConnect_GenericError(t *testing.T) {
+	orig := tsFindPeer
+	defer func() { tsFindPeer = orig }()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return nil, errors.New("unexpected network error")
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	err := doConnect(a)
+	if err == nil {
+		t.Fatal("expected error on generic FindPeer failure")
+	}
+	if !contains(err.Error(), "unexpected network error") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

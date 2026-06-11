@@ -26,13 +26,18 @@ token=$(curl -sf -H "Metadata: true" \
   exit 1
 }
 
+if [[ -z "$token" || "$token" == "null" ]]; then
+  echo "rover-halt: managed identity token is empty or invalid." >&2
+  exit 1
+fi
+
 meta=$(curl -sf -H "Metadata: true" \
   "${IMDS}/instance?api-version=2021-02-01")
 sub=$(echo "$meta" | jq -r '.compute.subscriptionId')
 rg=$(echo "$meta" | jq -r '.compute.resourceGroupName')
 vm=$(echo "$meta" | jq -r '.compute.name')
 
-if [[ -z "$sub" || -z "$rg" || -z "$vm" ]]; then
+if [[ -z "$sub" || "$sub" == "null" || -z "$rg" || "$rg" == "null" || -z "$vm" || "$vm" == "null" ]]; then
   echo "rover-halt: failed to extract VM identity from IMDS." >&2
   echo "  subscriptionId='${sub}', resourceGroupName='${rg}', name='${vm}'" >&2
   exit 1
