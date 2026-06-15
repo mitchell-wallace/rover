@@ -12,6 +12,7 @@ provider abstraction. It manages **one active VM at a time**.
 rover up small        # provision a 2 vCPU / 4 GiB VM
 rover provision       # configure it (Docker, dune, zsh, ...) via Ansible
 rover ssh             # connect, then run `dune`
+rover restart         # reboot the running VM
 rover down            # deallocate (stop compute billing)
 rover down --delete   # delete everything (stop all billing)
 ```
@@ -295,6 +296,7 @@ dune            # create/enter a coding environment, backed by Docker
 
 ```sh
 rover down              # DEALLOCATE: stops compute billing; disk + IP remain
+rover restart           # RESTART: reboot a running VM, preserving compute allocation
 rover down --delete     # DELETE: removes the resource group entirely
 ```
 
@@ -302,6 +304,10 @@ rover down --delete     # DELETE: removes the resource group entirely
 charge (compute) while preserving the disk so `rover up` resumes quickly.
 `down --delete` is the only command that removes persistent resources, and it
 asks for confirmation (or `--yes` non-interactively).
+
+`restart` is for recovering a wedged running VM without deallocating it. It uses
+Azure VM restart, refreshes Rover's saved connection info, and re-runs the
+Tailscale connectivity restoration path when public SSH is locked down.
 
 ### Halting from inside the VM
 

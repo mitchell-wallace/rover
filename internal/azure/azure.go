@@ -132,6 +132,11 @@ func (c *Client) ResizeDisk(gb int) (Info, error) {
 	return c.runJSON("disk", strconv.Itoa(gb))
 }
 
+// Restart reboots the running VM and returns updated connection info.
+func (c *Client) Restart() (Info, error) {
+	return c.runJSON("restart")
+}
+
 // Info returns the current connection info (alias of status JSON via ip).
 func (c *Client) Info() (Info, error) {
 	return c.runJSON("ip")

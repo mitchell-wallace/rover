@@ -47,7 +47,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y shellcheck
           # All Azure scripts (extensionless ones carry shebangs) plus install.sh.
           # Exclude test_common.sh which is not a standalone script (sources common.sh).
-          shellcheck scripts/azure/up scripts/azure/down scripts/azure/status scripts/azure/ip scripts/azure/ssh scripts/azure/ssh-access scripts/azure/disk scripts/azure/common.sh ansible/roles/dune/files/rover-halt install.sh
+          shellcheck scripts/azure/up scripts/azure/down scripts/azure/status scripts/azure/ip scripts/azure/ssh scripts/azure/ssh-access scripts/azure/disk scripts/azure/restart scripts/azure/common.sh ansible/roles/dune/files/rover-halt install.sh
 
   bash-test:
     runs-on: ubuntu-latest

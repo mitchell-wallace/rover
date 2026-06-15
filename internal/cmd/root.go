@@ -49,6 +49,7 @@ type azureProvider interface {
 	Down(del, yes bool) (azure.Info, error)
 	Status() (azure.Info, error)
 	ResizeDisk(gb int) (azure.Info, error)
+	Restart() (azure.Info, error)
 	Info() (azure.Info, error)
 	SSH(extra ...string) error
 	SetPublicSSH(allowed bool) error

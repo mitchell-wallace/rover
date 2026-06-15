@@ -23,6 +23,7 @@ var (
 	tsFindPeer   = tailscale.FindPeer
 	tsGetAuthKey = tailscale.GetAuthKey
 	tsConnect    = tailscale.Connect
+	tsPingPeer   = tailscale.PingPeer
 
 	restoreConnectivityPollCount = 12
 	restoreConnectivityPollWait  = 5 * time.Second
@@ -99,12 +100,12 @@ func restoreConnectivity(ctx context.Context, a *appContext) error {
 			default:
 			}
 			time.Sleep(restoreConnectivityPollWait)
-			if peer, err := tsFindPeer(tshost); err == nil && peer.Online {
+			if peer, err := tsFindPeer(tshost); err == nil && tsPingPeer(peer) {
 				ui.Info("Tailscale re-authenticated — VM reachable via 'rover connect'.")
 				return nil
 			}
 		}
-		ui.Warn("Tailscale peer did not come online after 60s.")
+		ui.Warn("Tailscale peer did not become reachable after 60s.")
 	}
 
 openFallback:
@@ -303,6 +304,40 @@ func doDown(a *appContext, del, assumeYes bool) error {
 		}
 		ui.Info("VM deallocated. Resume later with 'rover up'.")
 		ui.Warn("Cost: OS disk and static public IP still incur small charges. 'rover down --delete' removes everything.")
+	}
+	return nil
+}
+
+func doRestart(a *appContext) error {
+	current, err := a.azure.Status()
+	if err != nil {
+		return err
+	}
+	if !current.Exists {
+		return fmt.Errorf("no VM provisioned; run 'rover up' first")
+	}
+	if !current.Running() {
+		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", current.PowerState)
+	}
+
+	ui.Info("Restarting VM %s (%s)...", current.VMName, current.PowerState)
+	info, err := a.azure.Restart()
+	if err != nil {
+		return err
+	}
+	if err := a.syncConnection(info); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	ui.Info("VM restarted: %s (%s)", info.VMName, info.PowerState)
+	printInfo(info)
+
+	fmt.Println()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := restoreConnectivity(ctx, a); err != nil {
+		return err
 	}
 	return nil
 }
@@ -597,6 +632,11 @@ func doConnect(a *appContext, extra ...string) error {
 		ui.Info("Start it with 'rover up'.")
 		return fmt.Errorf("%q is offline", host)
 	}
+	if !tsPingPeer(peer) {
+		ui.Warn("%q is online in Tailscale but not reachable on the data plane.", host)
+		ui.Info("Run 'rover restart' to repair Tailscale or temporarily open public SSH.")
+		return fmt.Errorf("%q is not reachable over Tailscale", host)
+	}
 
 	target := peer.Target()
 	ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
@@ -621,11 +661,30 @@ func doCommand(a *appContext, args []string) error {
 		runFn = runRemoteCommandFn
 	}
 
-	if peer, perr := tsFindPeer(a.state.TSHostname()); perr == nil && peer.Online {
-		target := peer.Target()
-		ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
-		return runFn("tailscale",
-			"ssh", a.state.AdminUsername+"@"+target, "--", cmdStr)
+	if peer, perr := tsFindPeer(a.state.TSHostname()); perr == nil && peer != nil {
+		if tsPingPeer(peer) {
+			target := peer.Target()
+			ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
+			return runFn("tailscale",
+				"ssh", a.state.AdminUsername+"@"+target, "--", cmdStr)
+		}
+		if peer.Online {
+			ui.Warn("Tailscale peer is online but unreachable.")
+			if a.state.PublicSSHClosed {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				if err := restoreConnectivity(ctx, a); err != nil {
+					return err
+				}
+				if repairedPeer, err := tsFindPeer(a.state.TSHostname()); err == nil && tsPingPeer(repairedPeer) {
+					target := repairedPeer.Target()
+					ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
+					return runFn("tailscale",
+						"ssh", a.state.AdminUsername+"@"+target, "--", cmdStr)
+				}
+			}
+			ui.Warn("Falling back to public SSH.")
+		}
 	}
 
 	host := info.Host()

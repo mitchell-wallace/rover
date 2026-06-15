@@ -131,6 +131,18 @@ func (p *Peer) Target() string {
 	return p.HostName
 }
 
+// PingPeer checks whether the peer is reachable on the Tailscale data plane.
+// The control-plane Online bit can be stale or optimistic after VM restarts, so
+// callers use this before trusting the peer for SSH.
+func PingPeer(p *Peer) bool {
+	if p == nil || !p.Online {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "tailscale", "ping", "--timeout=3s", "--c", "1", p.Target()).Run() == nil
+}
+
 // Connect opens an interactive Tailscale SSH session to user@host's peer.
 func Connect(user, host string, extra ...string) error {
 	if !Available() {

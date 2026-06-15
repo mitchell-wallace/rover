@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# rover restart [--json]
+#
+# Restarts the running Rover-managed VM and prints updated connection info.
+set -euo pipefail
+# shellcheck source=scripts/azure/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON=1 ;;
+    *) die "unknown argument: $arg (usage: restart [--json])" ;;
+  esac
+done
+
+az_init
+
+state="$(vm_power_state)"
+case "${state}" in
+  absent) die "no Rover VM provisioned" ;;
+esac
+
+if ! is_running "${state}"; then
+  die "VM is '${state}', not running. Run 'rover up' to start it."
+fi
+
+log "Restarting ${ROVER_VM_NAME}..."
+azx vm restart -g "${ROVER_RESOURCE_GROUP}" -n "${ROVER_VM_NAME}" -o none
+log "VM restarted."
+
+if [ "${JSON}" = "1" ]; then
+  emit_connection_info
+else
+  info="$(emit_connection_info)"
+  target="$(printf '%s' "$info" | sed -E 's/.*"sshTarget":"([^"]*)".*/\1/')"
+  log "VM is back online. Connect with:"
+  echo "  rover ssh              # or: ssh ${target}"
+  echo "  rover connect          # if Tailscale is active"
+fi
