@@ -60,13 +60,7 @@ func tailscaleReady(st *config.State) bool {
 	return errors.As(err, &notFound)
 }
 
-func restoreConnectivity(ctx context.Context, a *appContext) error {
-	if !a.state.PublicSSHClosed {
-		return nil
-	}
-
-	ui.Info("Public SSH is locked down — restoring Tailscale connectivity...")
-
+func reauthenticateTailscale(ctx context.Context, a *appContext) bool {
 	var authKey string
 	if key := os.Getenv("TS_AUTHKEY"); key != "" {
 		authKey = sanitizeAuthKey(key)
@@ -96,19 +90,31 @@ func restoreConnectivity(ctx context.Context, a *appContext) error {
 			select {
 			case <-ctx.Done():
 				ui.Warn("Cancelled while waiting for Tailscale peer.")
-				goto openFallback
+				return false
 			default:
 			}
 			time.Sleep(restoreConnectivityPollWait)
 			if peer, err := tsFindPeer(tshost); err == nil && tsPingPeer(peer) {
 				ui.Info("Tailscale re-authenticated — VM reachable via 'rover connect'.")
-				return nil
+				return true
 			}
 		}
 		ui.Warn("Tailscale peer did not become reachable after 60s.")
 	}
 
-openFallback:
+	return false
+}
+
+func restoreConnectivity(ctx context.Context, a *appContext) error {
+	if !a.state.PublicSSHClosed {
+		return nil
+	}
+
+	ui.Info("Public SSH is locked down — restoring Tailscale connectivity...")
+	if reauthenticateTailscale(ctx, a) {
+		return nil
+	}
+
 	ui.Warn("Opening public SSH as fallback (Tailscale not available).")
 	if err := a.azure.SetPublicSSH(true); err != nil {
 		return fmt.Errorf("failed to open public SSH: %w", err)
@@ -634,6 +640,16 @@ func doConnect(a *appContext, extra ...string) error {
 	}
 	if !tsPingPeer(peer) {
 		ui.Warn("%q is online in Tailscale but not reachable on the data plane.", host)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if reauthenticateTailscale(ctx, a) {
+			repairedPeer, err := tsFindPeer(host)
+			if err == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
+				target := repairedPeer.Target()
+				ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
+				return tsConnect(a.state.AdminUsername, target, extra...)
+			}
+		}
 		ui.Info("Run 'rover restart' to repair Tailscale or temporarily open public SSH.")
 		return fmt.Errorf("%q is not reachable over Tailscale", host)
 	}

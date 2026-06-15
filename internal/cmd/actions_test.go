@@ -1618,12 +1618,15 @@ func TestDoConnect_PeerOnlineButUnreachable(t *testing.T) {
 	orig := tsFindPeer
 	defer func() { tsFindPeer = orig }()
 	stubTSPing(t, false)
+	t.Setenv("TS_AUTHKEY", "")
 
 	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
 		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
 	}
 
 	a := newTestAppContext(t, &mockAzureClient{})
+	a.state.TailscaleClientID = ""
+	a.state.TailscaleClientSecret = ""
 
 	err := doConnect(a)
 	if err == nil {
@@ -1631,6 +1634,70 @@ func TestDoConnect_PeerOnlineButUnreachable(t *testing.T) {
 	}
 	if !contains(err.Error(), "not reachable") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoConnect_RepairsOnlineButUnreachablePeer(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origGetAuthKey := tsGetAuthKey
+	origConnect := tsConnect
+	origPing := tsPingPeer
+	origPollCount := restoreConnectivityPollCount
+	origPollWait := restoreConnectivityPollWait
+	defer func() {
+		tsFindPeer = origFindPeer
+		tsGetAuthKey = origGetAuthKey
+		tsConnect = origConnect
+		tsPingPeer = origPing
+		restoreConnectivityPollCount = origPollCount
+		restoreConnectivityPollWait = origPollWait
+	}()
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-good", nil
+	}
+	restoreConnectivityPollCount = 1
+	restoreConnectivityPollWait = 1 * time.Millisecond
+
+	repaired := false
+	tsPingPeer = func(*tailscale.Peer) bool {
+		return repaired
+	}
+
+	var runCommandScript string
+	mock := &mockAzureClient{
+		runCommandFn: func(script string) error {
+			runCommandScript = script
+			repaired = true
+			return nil
+		},
+	}
+
+	var connectedUser, connectedHost string
+	tsConnect = func(user, host string, _ ...string) error {
+		connectedUser = user
+		connectedHost = host
+		return nil
+	}
+
+	a := newTestAppContext(t, mock)
+
+	if err := doConnect(a); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	if !contains(runCommandScript, "tailscale up") {
+		t.Fatalf("expected remote tailscale up, got script: %s", runCommandScript)
+	}
+	if connectedUser != "testuser" || connectedHost != "rover-vm.tail94a70e.ts.net" {
+		t.Errorf("unexpected connection target %s@%s", connectedUser, connectedHost)
 	}
 }
 
