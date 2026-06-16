@@ -74,7 +74,7 @@ Connectivity is where the real complexity lives and where it has the most caller
 - `Reauthenticate(ctx)` — generate/read an auth key, run `tailscale up` via Azure Run Command, poll until the peer is reachable (was `reauthenticateTailscale`).
 - `Restore(ctx)` — if public SSH is locked down, prefer re-auth, otherwise open public SSH as fallback (was `restoreConnectivity`).
 - `Connect(ctx, extra...)` — `rover connect`: peer lookup, offline/unpingable handling, online-but-unpingable repair, then `tailscale ssh` (was `doConnect`).
-- `Run(ctx, args)` — `rover command` routing: Tailscale-first, repair-when-locked-down, public-SSH fallback (was `doCommand`).
+- `RunCommand(ctx, args)` — `rover command` routing: Tailscale-first, repair-when-locked-down, public-SSH fallback (was `doCommand`).
 
 `vm` and `provision` consume `connectivity` rather than reimplementing any of it.
 
@@ -86,7 +86,7 @@ Connectivity is where the real complexity lives and where it has the most caller
 
 ### D5: `cmd` stays a thin adapter layer; `appContext` is the composition root
 
-`appContext` keeps `state` and `assetDir` and gains constructed services. `loadContext` builds the default providers once and injects them:
+`appContext` keeps `state` and `assetDir` and gains constructed services. During the migration, `conn` is introduced as soon as `internal/connectivity` lands so the legacy `doConnect`/`doCommand` wrappers and restore helpers can delegate to it before the global Tailscale seams are deleted. After the full extraction, `loadContext` builds the default providers once and injects them:
 
 ```go
 type appContext struct {
@@ -150,7 +150,7 @@ type AzureControl interface {
 }
 // vm needs the lifecycle subset: Up, Down, Status, Restart, ResizeDisk, SSH, RunCommand
 //   (NOT Info — only provision uses Info)
-// provision needs: Info, SetPublicSSH, RunCommand
+// provision needs: Info, SetPublicSSH
 ```
 
 The existing `azureProvider` interface in `cmd/root.go` is removed; the per-package interfaces replace it.
@@ -183,11 +183,29 @@ func ShellArg(s string) string
 
 ### D13: Teardown-time Tailscale cleanup lives in `vm`
 
-`doTailscaleCleanup`, `printTailscaleCleanupResult`, and `tailscaleLogoutScript` are part of `down --delete`. They move into `internal/vm` (the teardown owner) and use the `tailscale.Client` seam's `CleanupDevices`. `connectivity` does not own control-plane device cleanup — that is a lifecycle concern, not a reachability concern.
+`doTailscaleCleanup`, `printTailscaleCleanupResult`, and `tailscaleLogoutScript` are part of VM teardown and the existing `rover tailscale cleanup` maintenance command. They move into `internal/vm` (the teardown owner) and use the `tailscale.Client` seam's `CleanupDevices`. `connectivity` does not own control-plane device cleanup — that is a lifecycle concern, not a reachability concern. `vm.Service` exposes a narrow cleanup method for the maintenance command:
+
+```go
+func (s *Service) CleanupTailscaleDevices(deleteOnline, dryRun bool) (tailscale.CleanupResult, error)
+```
+
+`internal/cmd/tailscale.go` delegates to that method after preserving its existing confirmation prompts.
 
 ### D14: Provisioning preserves the `TS_AUTHKEY` env round-trip
 
 `doProvision` resolves and sanitizes the auth key, then does `os.Setenv("TS_AUTHKEY", authKey)` with a deferred `os.Unsetenv` (`actions.go:548-553`), because `ansible.Provision` reads `TS_AUTHKEY` from the process environment — the key is *not* passed through `ansible.Params`. This is load-bearing and easy to drop accidentally: a test that injects a fake `Ansible` and only asserts on `ansible.Params` will stay green even if the `Setenv` is removed, silently breaking real provisioning. The provision service MUST preserve this env round-trip, and `service_test.go` MUST assert it — the fake `Ansible` records `os.Getenv("TS_AUTHKEY")` at call time and the test checks it equals the sanitized key (and is unset afterward).
+
+### D15: State sync helpers are shared outside `cmd`
+
+`syncConnection` is currently a method on `appContext`, but both VM lifecycle and provisioning use it (`doProvision` marks Ansible applied, then syncs the latest Azure info). Service packages cannot import `cmd`, and putting the helper only in `vm` would force `provision` to depend on `vm` or duplicate state-mapping logic. Introduce `internal/stateutil` with:
+
+```go
+func ConnectionFromAzure(info azure.Info) config.Connection
+func ZeroConnection() config.Connection
+func SyncConnection(st *config.State, info azure.Info) error
+```
+
+`internal/cmd/conv.go` is removed. `vm` and `provision` both use `stateutil.SyncConnection`; `vm.Down(delete=true)` uses `stateutil.ZeroConnection`. This keeps the dependency graph acyclic: service packages depend on `stateutil`, while `stateutil` depends only on `azure` and `config`.
 
 ## Service Surfaces
 
@@ -216,6 +234,7 @@ type Service struct {
     Ansible  func(ansible.Params) error // default: ansible.Provision; injectable for tests
     Wait     SSHWaiter                  // default: TCP dial loop; injectable for tests
 }
+type SSHWaiter func(ctx context.Context, host string, port int)
 func (s *Service) Run(ctx context.Context) error  // was doProvision
 
 // internal/vm
@@ -242,7 +261,10 @@ func (s *Service) Restart(ctx context.Context) error
 func (s *Service) Disk(gb int, assumeYes bool) error
 func (s *Service) Status() error
 func (s *Service) SSH(extra ...string) error
+func (s *Service) CleanupTailscaleDevices(deleteOnline, dryRun bool) (tailscale.CleanupResult, error)
 ```
+
+`SSHWaiter` deliberately returns no error. The default preserves current `waitForSSH` behavior: it waits up to 5 minutes, returns early on context cancellation, and if SSH never opens it silently returns so Ansible produces the user-visible connection failure exactly as it does today.
 
 ## Package File Layout (after change)
 
@@ -260,11 +282,15 @@ internal/provision/
   service_test.go
 
 internal/vm/
-  service.go         ← Service, AzureLifecycle, syncConnection, printInfo, scrubKnownHosts
+  service.go         ← Service, AzureLifecycle, printInfo, scrubKnownHosts
   lifecycle.go       ← Up, Down, Restart
   disk.go            ← Disk, Status, SSH
   cleanup.go         ← Tailscale device cleanup + logout script (teardown)
   lifecycle_test.go, disk_test.go, cleanup_test.go
+
+internal/stateutil/
+  stateutil.go       ← ConnectionFromAzure, ZeroConnection, SyncConnection
+  stateutil_test.go
 
 internal/shellsafe/
   shellsafe.go       ← AuthKey, ShellArg
@@ -276,10 +302,10 @@ internal/tailscale/
 
 internal/cmd/
   root.go            ← appContext with vm + conn; loadContext wires defaults
-  up.go down.go restart.go disk.go status.go ssh.go command.go connect.go provision.go
+  up.go down.go restart.go disk.go status.go ssh.go command.go connect.go provision.go tailscale.go
                      ← unchanged thin Cobra files, now delegating to a.vm.* / a.conn.*
   interactive.go     ← delegates to the same service methods
-  (actions.go and actions_test.go DELETED)
+  (actions.go, actions_test.go, and conv.go DELETED)
 ```
 
 ## Test Migration Map
@@ -290,7 +316,9 @@ internal/cmd/
 | `TestTailscaleReady_*` | `connectivity/ready_test.go` |
 | `TestDoConnect_*`, `TestDoCommand_*` | `connectivity/route_test.go` |
 | `TestSanitizeAuthKey*`, `TestIsSafeAuthKeyChar`, `TestSanitizeShellArg` | `shellsafe/shellsafe_test.go` |
-| `TestDoDown_*`, `TestDoDisk_*`, `TestSyncConnection*`, `TestInfoRunning` | `vm/*_test.go` |
+| `TestSyncConnection*` plus `configConnFrom`/`stateZeroConn` coverage | `stateutil/stateutil_test.go` |
+| `TestInfoRunning` | `azure/azure_test.go` |
+| `TestDoDown_*`, `TestDoDisk_*` | `vm/*_test.go` |
 | `TestDoRestart_NoVM`, `TestDoRestart_VMNotRunning`, `TestDoRestart_RestartsAndSyncsConnection` | `vm/lifecycle_test.go` (Azure-only assertions) |
 | `TestDoRestart_RestoresConnectivityWhenPublicSSHClosed` | **split**: `vm/lifecycle_test.go` asserts `Conn.Restore` was invoked (recording fake `connRestorer`); the `tailscale up` Run Command string assertion moves to `connectivity/repair_test.go` |
 | `mockAzureClient`, `newTestAppContext`, `stubTSPing` | replaced by per-package fakes (`fakeAzure`, `fakeTailscale`, recording `connRestorer`/`provisioner`) + small constructors |
@@ -303,12 +331,13 @@ The "Real-backend verification notes" comment block at the top of `actions_test.
 
 1. `shellsafe` (pure, no deps) — extract + test; update `actions.go` to call it.
 2. `tailscale.Client` interface + `CLI` — add; no behavior change.
-3. `connectivity` — extract using the seams from 1–2; move connectivity tests in; delete global vars/poll knobs as they become unused.
-4. `provision` — extract; move provisioning behavior; inject `Ansible`/`Wait`.
-5. `vm` — extract lifecycle + teardown cleanup; compose `connectivity` + `provision`.
-6. `cmd` — rewire `appContext`/`loadContext`/`interactive.go`; delete `actions.go`.
-7. Delete `actions_test.go` once every test has a new home; verify counts.
-8. Verification: `go build ./...`, `go test ./...`, `golangci-lint run`, behavior diff spot-check.
+3. `connectivity` — extract using the seams from 1–2; introduce `appContext.conn`/default `tailscale.Client`; update legacy connectivity entry points (`tailscaleReady`, `restoreConnectivity`, `reauthenticateTailscale`, `doConnect`, `doCommand`) to delegate to `a.conn` so existing VM/provision wrappers keep compiling; move connectivity tests in; then delete global vars/poll knobs once no legacy code references them.
+4. `stateutil` — move connection-state conversion/sync helpers out of `cmd` before both `vm` and `provision` need them.
+5. `provision` — extract; move provisioning behavior; inject `Ansible`/`Wait`; introduce `appContext.provision` before any legacy wrapper delegates to it.
+6. `vm` — extract lifecycle + teardown cleanup; compose `connectivity` + `provision`; expose cleanup for `rover tailscale cleanup`.
+7. `cmd` — rewire `appContext`/`loadContext`/`interactive.go`/`tailscale.go`; delete `actions.go` and `conv.go`.
+8. Delete `actions_test.go` once every test has a new home; verify counts.
+9. Verification: `go build ./...`, `go test ./...`, `golangci-lint run`, behavior diff spot-check.
 
 ## Risks / Mitigations
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenSpec Plan Review"
+  short_description: "Review and tighten OpenSpec change plans"
+  default_prompt: "Use $openspec-plan-review to review this OpenSpec change for gaps, risky assumptions, and clear plan tighten-ups."
