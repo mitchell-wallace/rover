@@ -1,0 +1,8 @@
+{
+    "backupdir": "~/.config/micro/backups",
+    "colorscheme": "simple",
+    "ignorecase": false,
+    "softwrap": true,
+    "tabstospaces": true,
+    "wordwrap": true
+}

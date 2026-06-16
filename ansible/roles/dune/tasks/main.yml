@@ -109,6 +109,103 @@
     mode: "0755"
     creates: /usr/local/bin/gitui
 
+# --- Quality-of-life CLI tools ---------------------------------------------
+# tmux, fd-find, micro, fzf, and ripgrep come from base_packages above.
+
+# fd-find on Debian/Ubuntu ships the binary as `fdfind`; expose it as `fd` so
+# the host's muscle memory (and any `fd`-based tooling) works unchanged.
+- name: Symlink fd -> fdfind (Debian names the binary fdfind)
+  ansible.builtin.file:
+    src: /usr/bin/fdfind
+    dest: /usr/local/bin/fd
+    state: link
+  when: ansible_facts['os_family'] == 'Debian'
+
+# zellij (release tarball contains a single `zellij` binary at the root).
+- name: Install zellij
+  ansible.builtin.unarchive:
+    src: "https://github.com/zellij-org/zellij/releases/download/v{{ zellij_version }}/zellij-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-musl.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - zellij
+    mode: "0755"
+    creates: /usr/local/bin/zellij
+
+# zoxide (release tarball contains a single `zoxide` binary at the root).
+- name: Install zoxide
+  ansible.builtin.unarchive:
+    src: "https://github.com/ajeetdsouza/zoxide/releases/download/v{{ zoxide_version }}/zoxide-{{ zoxide_version }}-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-musl.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - zoxide
+    mode: "0755"
+    creates: /usr/local/bin/zoxide
+
+# broot (one universal zip; the per-arch `broot` binary lives in a subdir).
+- name: Check broot version
+  ansible.builtin.command: /usr/local/bin/broot --version
+  register: broot_installed
+  changed_when: false
+  failed_when: false
+
+- name: Ensure broot staging dir exists
+  ansible.builtin.file:
+    path: "/tmp/broot-{{ broot_version }}"
+    state: directory
+    mode: "0755"
+  when: broot_installed.rc != 0 or broot_version not in (broot_installed.stdout | default(''))
+
+- name: Stage broot archive
+  ansible.builtin.unarchive:
+    src: "https://github.com/Canop/broot/releases/download/v{{ broot_version }}/broot_{{ broot_version }}.zip"
+    dest: "/tmp/broot-{{ broot_version }}"
+    remote_src: true
+  when: broot_installed.rc != 0 or broot_version not in (broot_installed.stdout | default(''))
+
+- name: Install broot binary
+  ansible.builtin.copy:
+    src: "/tmp/broot-{{ broot_version }}/{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-gnu/broot"
+    dest: /usr/local/bin/broot
+    remote_src: true
+    mode: "0755"
+  when: broot_installed.rc != 0 or broot_version not in (broot_installed.stdout | default(''))
+
+# tre (tre-command). Upstream publishes an x86_64-linux prebuild only; the
+# Rover VM SKUs are x86_64, so other arches are skipped with a note.
+- name: Install tre (tre-command)
+  ansible.builtin.unarchive:
+    src: "https://github.com/dduan/tre/releases/download/v{{ tre_version }}/tre-v{{ tre_version }}-x86_64-unknown-linux-musl.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - tre
+    mode: "0755"
+    creates: /usr/local/bin/tre
+  when: ansible_architecture == 'x86_64'
+
+- name: tre not available for this architecture
+  ansible.builtin.debug:
+    msg: "tre-command has no prebuilt binary for {{ ansible_architecture }}; skipped (install via cargo if needed)."
+  when: ansible_architecture != 'x86_64'
+
+# --- Terminfo: xterm-ghostty -----------------------------------------------
+# Ghostty ships its own terminfo (not in ncurses-term). When a Ghostty client
+# connects over SSH it forwards TERM=xterm-ghostty; without the entry zsh can't
+# emit correct cursor/erase sequences and Backspace appears to type a space.
+# Install the host's entry system-wide so line editing works.
+- name: Copy xterm-ghostty terminfo source to VM
+  ansible.builtin.copy:
+    src: terminfo/xterm-ghostty.terminfo
+    dest: /tmp/xterm-ghostty.terminfo
+    mode: "0644"
+
+- name: Compile xterm-ghostty terminfo
+  ansible.builtin.command: "tic -x -o /usr/share/terminfo /tmp/xterm-ghostty.terminfo"
+  args:
+    creates: /usr/share/terminfo/x/xterm-ghostty
+
 # --- zsh + Powerlevel10k ---------------------------------------------------
 - name: Clone Powerlevel10k
   become_user: "{{ target_user }}"
@@ -124,6 +221,46 @@
   ansible.builtin.template:
     src: zshrc.j2
     dest: "{{ user_home }}/.zshrc"
+    mode: "0644"
+
+# --- Tool configurations (baked into the role, not read from the host) ------
+- name: Ensure user config directories exist
+  become_user: "{{ target_user }}"
+  ansible.builtin.file:
+    path: "{{ user_home }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - .config/zellij
+    - .config/micro
+    - .config/broot/skins
+
+- name: Install tmux config
+  become_user: "{{ target_user }}"
+  ansible.builtin.copy:
+    src: tmux/tmux.conf
+    dest: "{{ user_home }}/.tmux.conf"
+    mode: "0644"
+
+- name: Install zellij config
+  become_user: "{{ target_user }}"
+  ansible.builtin.copy:
+    src: zellij/config.kdl
+    dest: "{{ user_home }}/.config/zellij/config.kdl"
+    mode: "0644"
+
+- name: Install micro config
+  become_user: "{{ target_user }}"
+  ansible.builtin.copy:
+    src: micro/
+    dest: "{{ user_home }}/.config/micro/"
+    mode: "0644"
+
+- name: Install broot config (conf, verbs, skins, br helper)
+  become_user: "{{ target_user }}"
+  ansible.builtin.copy:
+    src: broot/
+    dest: "{{ user_home }}/.config/broot/"
     mode: "0644"
 
 - name: Set zsh as the default shell

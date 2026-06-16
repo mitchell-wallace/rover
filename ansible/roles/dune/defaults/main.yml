@@ -6,12 +6,19 @@ user_home: "/home/{{ target_user }}"
 # Pinned versions for tools installed from GitHub releases (amd64 hosts).
 lazydocker_version: "0.25.2"
 gitui_version: "0.27.0"
+zellij_version: "0.43.1"
+zoxide_version: "0.9.9"
+broot_version: "1.55.0"
+tre_version: "0.4.0"
 
-# Quality-of-life packages installed alongside the required toolset.
+# Quality-of-life packages installed alongside the required toolset. fd-find
+# ships its binary as `fdfind` on Debian/Ubuntu; the role symlinks it to `fd`.
 base_packages:
   - git
   - zsh
   - micro
+  - tmux
+  - fd-find
   - curl
   - wget
   - unzip
