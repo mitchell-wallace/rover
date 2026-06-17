@@ -155,6 +155,8 @@ type AzureControl interface {
 
 The existing `azureProvider` interface in `cmd/root.go` is removed; the per-package interfaces replace it.
 
+> **Update (post v0.5.5):** `RunCommand(script string) error` keeps this exact signature, but its implementation in `internal/azure` now owns classified failure handling and bounded retry (see `RunCommandError` / `RunCommandErrorKind` / `runCommandPolicy`). Run Command contention (409 conflict, throttles, orphaned server-side extensions, transient deployment errors) is detected and retried INSIDE the azure boundary, and only `KindGuestScriptFailed` short-circuits. Consequence for this refactor: `connectivity.Reauthenticate` must NOT add its own retry loop around `AzureControl.RunCommand` — it relies on the boundary's. The current `cmd/buildReauthScript` helper (which restarts `tailscaled`, bounds every call with `timeout(1)`, and drops `|| true`/`--force-reauth`) moves into `connectivity` as the canonical repair script during this change.
+
 ### D10: `CommandRunner` replaces the `runRemoteCommandFn` global
 
 Remote command execution (the `ssh`/`tailscale ssh` exec in `doCommand`, and `runRemoteCommand`) becomes a func-typed seam on `connectivity.Service`:

@@ -42,7 +42,11 @@ When public SSH is locked down, `Service.Restore(ctx)` SHALL first attempt Tails
 
 ### Requirement: Bounded remote re-authentication
 
-`Service.Reauthenticate(ctx)` SHALL resolve an auth key (preferring `TS_AUTHKEY`, then OAuth-generated), run `tailscale up` inside the VM via Azure Run Command using shell-sanitized arguments, then poll local Tailscale for a reachable peer up to `Poll.Count` times waiting `Poll.Wait` between attempts. It SHALL stop early and return false if the context is cancelled, and return false if no auth key could be obtained.
+`Service.Reauthenticate(ctx)` SHALL resolve an auth key (preferring `TS_AUTHKEY`, then OAuth-generated), run a repair script inside the VM via Azure Run Command, then poll local Tailscale for a reachable peer up to `Poll.Count` times waiting `Poll.Wait` between attempts. It SHALL stop early and return false if the context is cancelled, and return false if no auth key could be obtained.
+
+The repair script SHALL restart `tailscaled` before bringing the node up (to clear a wedged daemon and reload existing node credentials rather than minting a duplicate), SHALL bound every `tailscale`/`systemctl` invocation with `timeout(1)` so a stuck daemon cannot pin the Run Command extension for its ~90 minute script ceiling, and SHALL propagate the real `tailscale up` exit code (no `|| true`) so genuine failures surface to the caller. It SHALL NOT use `--force-reauth`, which combined with ephemeral auth keys creates duplicate/ghost nodes.
+
+Run Command contention (HTTP 409 "Run command extension execution is in progress", throttles, transient deployment errors, and orphaned extensions whose local `az` was cancelled but whose server-side extension keeps running) SHALL be detected, classified, and retried with bounded exponential backoff INSIDE the Azure boundary (`internal/azure`), so `connectivity` relies on that boundary rather than re-implementing retry. Only a definitive guest-script failure short-circuits; the caller's context bounds total retry time. Classified failures SHALL surface the captured guest output for diagnosis.
 
 #### Scenario: Context cancelled during poll
 - **GIVEN** a re-auth in progress with a cancelled context
@@ -52,14 +56,31 @@ When public SSH is locked down, `Service.Restore(ctx)` SHALL first attempt Tails
 - **GIVEN** an auth key containing characters outside the safe allowlist
 - **THEN** the unsafe characters are stripped before the key is used and the user is warned
 
+#### Scenario: Guest failure is surfaced, not swallowed
+- **GIVEN** the repair script exits non-zero (e.g. invalid auth key, unauthorized tag)
+- **THEN** the failure is classified as a guest-script failure, is NOT retried, and its captured output is printed so the user sees the real cause
+
+#### Scenario: Run Command contention is ridden through
+- **GIVEN** a prior Run Command is still executing server-side when re-auth runs
+- **THEN** the Azure boundary detects the 409/ambiguous contention, retries with bounded backoff, and re-auth proceeds once the extension is free
+
 ### Requirement: Connect repairs an online-but-unpingable peer before failing
 
-`Service.Connect(ctx, extra...)` SHALL connect over Tailscale SSH when the peer is online and reachable. When the peer is online but not reachable on the data plane, it SHALL attempt re-authentication and, if that restores reachability, connect; otherwise it SHALL return an error. Peer-not-found, offline, and Tailscale-not-installed/not-running conditions SHALL each return their existing distinct error; the peer-not-found case additionally prints provisioning guidance, while the not-installed/not-running cases return the underlying error verbatim without extra guidance lines.
+`Service.Connect(ctx, extra...)` SHALL connect over Tailscale SSH when the peer is online and reachable. When the peer is online but not reachable on the data plane, it SHALL attempt re-authentication and, if that restores reachability, connect. If re-authentication is exhausted, it SHALL offer (interactively, defaulting to no in non-interactive contexts) to restart the VM — which restarts `tailscaled` and typically clears the wedge — and reconnect automatically if the restart restores reachability; otherwise it SHALL return an error. Peer-not-found, offline, and Tailscale-not-installed/not-running conditions SHALL each return their existing distinct error; the peer-not-found case additionally prints provisioning guidance, while the not-installed/not-running cases return the underlying error verbatim without extra guidance lines.
 
 #### Scenario: Online but unpingable, repair succeeds
 - **GIVEN** the peer is online but `tailscale ping` fails, and re-auth restores reachability
 - **WHEN** `Connect` runs
 - **THEN** it connects over Tailscale SSH to the admin user at the peer target
+
+#### Scenario: Online but unpingable, re-auth exhausted, user accepts restart
+- **GIVEN** re-auth does not restore reachability and the user accepts the restart prompt
+- **WHEN** `Connect` runs
+- **THEN** the VM is restarted and, once the peer pings again, it connects over Tailscale SSH without the user re-running any command
+
+#### Scenario: Non-interactive context skips the restart prompt
+- **GIVEN** stdin is not a TTY and re-auth is exhausted
+- **THEN** the restart prompt is declined by default and `Connect` returns the not-reachable error
 
 #### Scenario: Peer offline
 - **GIVEN** the peer is in the tailnet but offline

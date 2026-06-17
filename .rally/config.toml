@@ -1,0 +1,31 @@
+schema_version = 2
+run_hooks_on_autocommit = false
+
+[defaults]
+iterations = 5
+mix = 'cc cx'
+claude_model = 'claude-opus-4-7'
+codex_model = 'gpt-5.5'
+gemini_model = 'gemini-3.1-pro-preview'
+opencode_model = 'opencode-go/kimi-k2.6'
+antigravity_model = 'Gemini 3.5 Flash (High)'
+
+[laps]
+
+[free_run]
+
+[fallback]
+
+[reliability]
+stall_threshold_secs = 900
+retry_budget = 5
+recent_try_count = 5
+
+[harness]
+
+[routes]
+default = ['opencode']
+junior = ['opencode']
+senior = ['claude']
+ui = ['gemini']
+verify = ['codex']

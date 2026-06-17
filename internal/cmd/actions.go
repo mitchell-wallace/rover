@@ -76,12 +76,9 @@ func reauthenticateTailscale(ctx context.Context, a *appContext) bool {
 
 	if authKey != "" {
 		ui.Info("Re-authenticating Tailscale inside the VM...")
-		script := fmt.Sprintf(
-			`sudo tailscale up --authkey='%s' --ssh --hostname='%s' --advertise-tags='%s' 2>&1 || true`,
-			authKey, sanitizeShellArg(a.state.TSHostname()), sanitizeShellArg(a.state.TSTags()),
-		)
+		script := buildReauthScript(authKey, a.state.TSHostname(), a.state.TSTags())
 		if err := a.azure.RunCommand(script); err != nil {
-			ui.Warn("Tailscale re-auth via Azure Run Command failed: %v", err)
+			reportRunCommandFailure(err)
 		}
 
 		ui.Info("Waiting for Tailscale peer to come online...")
@@ -99,7 +96,7 @@ func reauthenticateTailscale(ctx context.Context, a *appContext) bool {
 				return true
 			}
 		}
-		ui.Warn("Tailscale peer did not become reachable after 60s.")
+		ui.Warn("Tailscale peer did not become reachable after %s.", connectivityWaitBudget())
 	}
 
 	return false
@@ -154,6 +151,53 @@ func sanitizeShellArg(s string) string {
 		}
 		return -1
 	}, s)
+}
+
+// buildReauthScript returns the Run Command script used to repair Tailscale
+// inside the VM. The daemon is restarted first so a wedged tailscaled (alive on
+// its socket but not establishing a data plane) reloads its existing node
+// credentials instead of minting a duplicate node. Every invocation is bounded
+// by timeout(1) so a stuck daemon cannot pin the Run Command extension for
+// Azure's ~90 minute script ceiling, and the final `tailscale up` does not
+// swallow its exit code so real failures propagate to the caller.
+func buildReauthScript(authKey, hostname, tags string) string {
+	return fmt.Sprintf(`if ! command -v tailscale >/dev/null 2>&1; then
+  echo 'tailscale CLI not installed on VM' >&2
+  exit 127
+fi
+sudo timeout 60s systemctl restart tailscaled 2>&1 || true
+sleep 3
+sudo timeout 120s tailscale up --authkey='%s' --ssh --hostname='%s' --advertise-tags='%s'`,
+		authKey, sanitizeShellArg(hostname), sanitizeShellArg(tags))
+}
+
+// reportRunCommandFailure surfaces a RunCommand error to the user. When the
+// azure boundary classified it (conflict/transient/guest-failure), the captured
+// guest output is printed so the user sees the real cause (invalid auth key,
+// unauthorized tag, tailscaled down) instead of a bare exit code.
+func reportRunCommandFailure(err error) {
+	var rcErr *azure.RunCommandError
+	if !errors.As(err, &rcErr) {
+		ui.Warn("Tailscale re-auth via Azure Run Command failed: %v", err)
+		return
+	}
+	attempt := "attempt"
+	if rcErr.Attempts != 1 {
+		attempt = "attempts"
+	}
+	ui.Warn("Tailscale re-auth via Azure Run Command failed (%s after %d %s).", rcErr.Kind, rcErr.Attempts, attempt)
+	for _, line := range strings.Split(strings.TrimSpace(rcErr.Output), "\n") {
+		if line != "" {
+			fmt.Println("  " + line)
+		}
+	}
+}
+
+// connectivityWaitBudget is the total poll duration used in the
+// "did not become reachable after ..." warning, derived from the poll knobs so
+// the message stays accurate if the knobs change.
+func connectivityWaitBudget() time.Duration {
+	return (time.Duration(restoreConnectivityPollCount) * restoreConnectivityPollWait).Round(time.Second)
 }
 
 func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error {
@@ -640,7 +684,7 @@ func doConnect(a *appContext, extra ...string) error {
 	}
 	if !tsPingPeer(peer) {
 		ui.Warn("%q is online in Tailscale but not reachable on the data plane.", host)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		if reauthenticateTailscale(ctx, a) {
 			repairedPeer, err := tsFindPeer(host)
@@ -648,6 +692,25 @@ func doConnect(a *appContext, extra ...string) error {
 				target := repairedPeer.Target()
 				ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
 				return tsConnect(a.state.AdminUsername, target, extra...)
+			}
+		}
+		// Re-auth did not restore the data plane. A VM reboot restarts
+		// tailscaled and clears a wedged node, so offer that in-process before
+		// giving up — this is the documented escape hatch for this exact
+		// failure mode.
+		if ok, cerr := ui.Confirm(
+			"Restart the VM to repair Tailscale?",
+			"A reboot restarts the Tailscale daemon inside the VM, which usually restores the data plane. rover reconnects automatically afterward.",
+			false,
+		); cerr == nil && ok {
+			if rerr := doRestart(a); rerr == nil {
+				if repairedPeer, ferr := tsFindPeer(host); ferr == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
+					target := repairedPeer.Target()
+					ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
+					return tsConnect(a.state.AdminUsername, target, extra...)
+				}
+			} else {
+				ui.Warn("Restart attempt failed: %v", rerr)
 			}
 		}
 		ui.Info("Run 'rover restart' to repair Tailscale or temporarily open public SSH.")

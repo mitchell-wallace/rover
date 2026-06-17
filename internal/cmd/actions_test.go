@@ -1776,3 +1776,46 @@ func TestDoConnect_GenericError(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestBuildReauthScript locks in the properties of the repair script that exist
+// to prevent the recurrence of the Run Command conflict / wedge hang observed
+// in production on 2026-06-17.
+func TestBuildReauthScript(t *testing.T) {
+	script := buildReauthScript("tskey-auth-ABC123", "rover-vm", "tag:rover")
+
+	// Guest-bounded: a wedged daemon cannot pin the extension for Azure's
+	// ~90 minute script ceiling (the root cause of the 1.5h hang).
+	if !contains(script, "timeout 120s tailscale up") {
+		t.Errorf("script must bound `tailscale up` with timeout(1)\ngot: %s", script)
+	}
+	// Daemon restart clears a wedged tailscaled (the observed data-plane failure).
+	if !contains(script, "systemctl restart tailscaled") {
+		t.Errorf("script must restart tailscaled first\ngot: %s", script)
+	}
+	// The final tailscale-up must NOT swallow failures (regression of `|| true`,
+	// which hid the real error and forced a 60s blind poll).
+	lines := strings.Split(strings.TrimSpace(script), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if contains(last, "|| true") {
+		t.Errorf("final tailscale-up line must propagate failures (no `|| true`)\ngot: %s", last)
+	}
+	// Interpolation.
+	if !contains(script, "tskey-auth-ABC123") || !contains(script, "rover-vm") || !contains(script, "tag:rover") {
+		t.Errorf("authkey/hostname/tags not interpolated\ngot: %s", script)
+	}
+	// --force-reauth is deliberately absent: combined with ephemeral auth keys
+	// it mints duplicate nodes (the stale-ghost problem). The daemon restart
+	// covers unwedging instead.
+	if contains(script, "--force-reauth") {
+		t.Errorf("script must not use --force-reauth (duplicate-node risk with ephemeral keys)\ngot: %s", script)
+	}
+}
+
+func TestBuildReauthScript_SanitizesShellMetachars(t *testing.T) {
+	// Shell metacharacters in hostname/tags must be stripped before
+	// interpolation to prevent injection via persisted state.
+	script := buildReauthScript("k", "rover-vm'; rm -rf /; echo '", "tag:rover")
+	if contains(script, "rm -rf") {
+		t.Errorf("shell metacharacters in hostname were not stripped\ngot: %s", script)
+	}
+}
