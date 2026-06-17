@@ -1,0 +1,16 @@
+schema_version = 2
+laps_instructions = ""
+run_hooks_on_autocommit = false
+data_dir = ""
+
+[defaults]
+iterations = 5
+mix = "cc cx"
+claude_model = ""
+codex_model = ""
+gemini_model = ""
+opencode_model = ""
+antigravity_model = ""
+
+[telemetry]
+sentry_dsn = ""
