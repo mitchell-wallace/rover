@@ -1,4 +1,181 @@
 {
   "version": 2,
-  "tasks": []
+  "tasks": [
+    {
+      "id": "rove-da34",
+      "title": "Extract internal/shellsafe pure sanitizers",
+      "description": "Context\nFirst slice of the improve-architecture OpenSpec change (openspec/changes/improve-architecture; read proposal.md and design.md D11, tasks §1). Behavior-preserving refactor. The rune-allowlist sanitizers live in internal/cmd/actions.go: sanitizeAuthKey (L130), isSafeAuthKeyChar (L146), sanitizeShellArg (L150).\n\nOutcome\nA pure internal/shellsafe package: AuthKey(key string) (clean string, stripped bool) and ShellArg(s string) string, with no ui import. actions.go calls shellsafe and emits the existing ui.Warn(\"Auth key contained unexpected characters …\") verbatim when stripped is true.\n\nFiles \u0026 scope\nNew internal/shellsafe/shellsafe.go and shellsafe_test.go. Edit only the call sites in internal/cmd/actions.go (reauthenticateTailscale, doProvision). Touch nothing else.\n\nDesign\nD11: AuthKey returns the stripped bool instead of calling ui.Warn, so the package stays UI-free and table-testable. Move TestSanitizeAuthKey, TestSanitizeAuthKey_StripsWithWarning (now assert the bool), TestIsSafeAuthKeyChar, TestSanitizeShellArg into shellsafe_test.go, table-driven.\n\nAcceptance\ngo build ./... and go test ./... green; shellsafe imports no ui; the warn string at the call site is byte-identical. Report completion — do NOT tick tasks.md boxes (the phase VERIFY lap owns that). Tasks: §1 (1.1–1.3).",
+      "assignee": "JUNIOR",
+      "isDone": false,
+      "order": 65536,
+      "createdAt": "2026-06-17T00:52:37.691438127Z",
+      "updatedAt": "2026-06-17T00:52:37.691438127Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-8f61",
+      "title": "Add tailscale.Client interface and CLI adapter",
+      "description": "Context\nimprove-architecture §2, design D8. Consumers currently reach Tailscale through global function vars in actions.go (tsFindPeer/tsGetAuthKey/tsConnect/tsPingPeer). This lap introduces the provider-side interface they will depend on instead.\n\nOutcome\ninternal/tailscale/client.go adds a Client interface (FindPeer, PingPeer, GetAuthKey, Connect, CleanupDevices), a CLI struct implementing it by delegating to the existing package funcs, and NewClient() Client. Existing package funcs stay as-is. No behavior change.\n\nFiles \u0026 scope\nNew internal/tailscale/client.go only. Do not modify tailscale.go or any consumer yet.\n\nDesign\nD8: the default adapter MUST live in package tailscale (not connectivity) to avoid the import cycle — connectivity will import tailscale for the Peer/CleanupResult types. Methods are thin delegations with no logic.\n\nAcceptance\ngo build ./... and go test ./... green. Report completion; do NOT tick tasks.md. Tasks: §2 (2.1–2.2).",
+      "assignee": "JUNIOR",
+      "isDone": false,
+      "order": 131072,
+      "createdAt": "2026-06-17T00:52:37.691441465Z",
+      "updatedAt": "2026-06-17T00:52:37.691441465Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-ff28",
+      "title": "Port connectivity logic into internal/connectivity",
+      "description": "Context\nThe flagship deep module of improve-architecture (§3.1–3.3; design D3, D9, D10, D12). Behavior is FROZEN (design Guiding Principle 1). Source in actions.go: tailscaleReady L51, reauthenticateTailscale L63, restoreConnectivity L108, doConnect L617, doCommand L662, runRemoteCommand L724.\n\nOutcome\ninternal/connectivity with: service.go — Service{State, Azure AzureControl, TS tailscale.Client, Run CommandRunner, Poll PollConfig}; AzureControl = Status/SetPublicSSH/RunCommand (NOT Info — only provision uses Info); CommandRunner func(name string, args ...string) error plus defaultCommandRunner porting runRemoteCommand verbatim (own internal 10-min timeout, inherited stdio, fmt.Errorf(\"%s: %w\", name, err) wrapping); PollConfig and DefaultPoll{Count:12, Wait:5*time.Second}; New() constructor; Ready(). repair.go — Reauthenticate(ctx) (returns bool) and Restore(ctx). route.go — Connect(ctx, extra...) and RunCommand(ctx, args). actions.go is unchanged this lap and still compiles; callers cut over later.\n\nFiles \u0026 scope\nNew internal/connectivity/{service.go, repair.go, route.go}. Do not touch actions.go callers or delete globals yet — that is the connectivity-cutover lap.\n\nDesign\nD3/D9/D10/D12. Port verbatim: every ui string, the Tailscale-first → repair → public-SSH fallback ordering, and poll count/wait. Use shellsafe for sanitization and emit the same ui.Warn at the call site. Keep each file within the D7 budget (service ≤250 lines; split before exceeding). connectivity imports tailscale for Peer/CleanupResult; it must NOT import cmd or vm.\n\nAcceptance\ngo build ./... green; go vet ./internal/connectivity/... clean. The package compiles with no callers yet. Report completion; do NOT tick tasks.md. Tasks: §3.1–3.3.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 196608,
+      "createdAt": "2026-06-17T00:52:37.691442323Z",
+      "updatedAt": "2026-06-17T00:52:37.691442323Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-dc12",
+      "title": "Migrate connectivity tests onto injected fakes",
+      "description": "Context\n§3.4–3.6, design Test Migration Map. The current tests in actions_test.go drive behavior through global stubs (tsFindPeer/tsPingPeer/tsGetAuthKey/tsConnect/runRemoteCommandFn) and poll-var overrides; they must be re-pointed onto constructor-injected fakes.\n\nOutcome\nconnectivity package tests, green, with zero process-global mutation. testutil_test.go provides fakeAzure and fakeTailscale (implementing AzureControl / tailscale.Client, recording calls). repair_test.go: all TestRestoreConnectivity_* (incl. _FullDownUpCycle and _ContextCancelled) plus reauth coverage, and the `tailscale up` Run Command script assertion split out of TestDoRestart_RestoresConnectivityWhenPublicSSHClosed. ready_test.go: TestTailscaleReady_*. route_test.go: TestDoConnect_* and TestDoCommand_*. testdata/REALBACKEND.md preserves the \"Real-backend verification notes\" block from the top of actions_test.go.\n\nFiles \u0026 scope\nNew internal/connectivity/*_test.go and testdata/REALBACKEND.md. Leave the originals in actions_test.go for now — they still compile against actions.go and are deleted in the cmd-cutover lap. Each test file ≤400 lines (split if needed).\n\nDesign\nInject a fast PollConfig{Count:2, Wait:time.Millisecond} where the old tests overrode poll vars. Preserve exact assertions, including: TestDoConnect_TailscaleNotInstalled/NotRunning assert only the underlying error strings (no extra ui guidance), and the command-failure test asserts the wrapped `name: …` message.\n\nAcceptance\ngo test ./internal/connectivity/... green; no global-var or poll-knob overrides in the new tests. Report completion; do NOT tick tasks.md. Tasks: §3.4–3.6.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 262144,
+      "createdAt": "2026-06-17T00:52:37.691443034Z",
+      "updatedAt": "2026-06-17T00:52:37.691443034Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-0ea3",
+      "title": "Cut cmd over to connectivity service and remove global seams",
+      "description": "Context\n§3.7–3.8, design D5 migration step 3. High-risk: removes the global Tailscale/poll seams the still-present actions.go depends on. Order matters.\n\nOutcome\nappContext gains conn *connectivity.Service; loadContext constructs one tailscale.Client (NewClient) and builds connectivity.New(state, azureClient, tsClient). The legacy entry points in actions.go (tailscaleReady, restoreConnectivity, reauthenticateTailscale, doConnect, doCommand) become thin delegations to a.conn. Only AFTER no code references them, the global vars (tsFindPeer/tsGetAuthKey/tsConnect/tsPingPeer/runRemoteCommandFn) and poll vars (restoreConnectivityPollCount/Wait) are deleted.\n\nFiles \u0026 scope\ninternal/cmd/root.go (appContext + loadContext) and internal/cmd/actions.go (delegations + delete globals). Do not touch the Cobra command files yet.\n\nDesign\nD5. Sequence inside the lap: add conn → delegate the five entry points → confirm green → delete the globals → confirm green. The remaining actions.go connectivity tests run via the delegations until they are removed in the cmd-cutover lap.\n\nAcceptance\ngo test ./internal/connectivity/... and go test ./internal/cmd pass; grep shows no remaining references to the deleted global vars. Report completion; do NOT tick tasks.md. Tasks: §3.7–3.8.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 327680,
+      "createdAt": "2026-06-17T00:52:37.691443703Z",
+      "updatedAt": "2026-06-17T00:52:37.691443703Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-ad0b",
+      "title": "Verify shellsafe, tailscale.Client, and connectivity extraction",
+      "description": "Use the openspec-verify-change skill against the improve-architecture change, scoped to phases 1–3.\n\nConfirm: shellsafe is UI-free and the warn string is preserved verbatim; the tailscale.Client adapter lives in package tailscale (no import cycle); connectivity behavior is byte-identical to the pre-refactor actions.go — poll count/wait, fallback ordering, all ui strings, and the wrapped command-failure error; the global Tailscale/poll seams are gone and nothing mutates process-global state to redirect connectivity behavior. Trace the actual moved symbols and emitted strings, not just that tests pass.\n\nTick the tasks.md boxes for §1, §2, and §3 only for tasks you verify as correctly and thoroughly done. For any substantive gap, add a focused fix lap at the head rather than fixing large issues inline.",
+      "assignee": "VERIFY",
+      "isDone": false,
+      "order": 393216,
+      "createdAt": "2026-06-17T00:52:37.691444391Z",
+      "updatedAt": "2026-06-17T00:52:37.691444391Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-af4c",
+      "title": "Extract internal/stateutil shared state helpers",
+      "description": "Context\n§4, design D15. Connection-state mapping lives in internal/cmd/conv.go (configConnFrom, stateZeroConn) and as the appContext.syncConnection method (actions.go L34). Both vm and provision will need it, and service packages cannot import cmd.\n\nOutcome\ninternal/stateutil with ConnectionFromAzure(info azure.Info) config.Connection, ZeroConnection() config.Connection, and SyncConnection(st *config.State, info azure.Info) error. Remaining legacy call sites in actions.go use stateutil.SyncConnection / stateutil.ZeroConnection; conv.go is deleted.\n\nFiles \u0026 scope\nNew internal/stateutil/{stateutil.go, stateutil_test.go}; edit actions.go call sites; delete internal/cmd/conv.go. stateutil imports only azure and config.\n\nDesign\nMove behavior verbatim — including the VM-size preservation in syncConnection (it re-asserts info.VMSize when non-empty; ConnectionFromAzure already sets it, so the result is unchanged — preserve it). Tests: port TestSyncConnection_SavesState plus direct coverage for VM-size preservation and zero-connection reset.\n\nAcceptance\ngo test ./internal/stateutil/... and go test ./internal/cmd pass; conv.go gone. Report completion; do NOT tick tasks.md. Tasks: §4.1–4.3.",
+      "assignee": "JUNIOR",
+      "isDone": false,
+      "order": 458752,
+      "createdAt": "2026-06-17T00:52:37.691444983Z",
+      "updatedAt": "2026-06-17T00:52:37.691444983Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-101b",
+      "title": "Extract internal/provision service",
+      "description": "Context\n§5.1–5.2, design D14. Source: doProvision (actions.go L519) and waitForSSH (L488). Contains a load-bearing TS_AUTHKEY env round-trip that is easy to drop.\n\nOutcome\ninternal/provision with: service.go — Service{State, Azure AzureProvisioner, TS tailscale.Client, AssetDir, Ansible func(ansible.Params) error (default ansible.Provision), Wait SSHWaiter}; AzureProvisioner = Info/SetPublicSSH (NOT RunCommand — provisioning runs no Azure guest commands); Run(ctx) porting doProvision. wait.go — default SSH wait porting waitForSSH (TCP dial loop, 5-min deadline, the \"Waiting for SSH …\"/\"SSH is up.\" messages, silent return on cancel/timeout). actions.go still compiles; cutover is the next lap.\n\nFiles \u0026 scope\nNew internal/provision/{service.go, wait.go}. Do not wire appContext or remove doProvision yet.\n\nDesign\nD14: the resolved+sanitized auth key reaches Ansible via os.Setenv(\"TS_AUTHKEY\", key) with a deferred os.Unsetenv — NOT via ansible.Params. Preserve exactly. Preserve host selection (online Tailscale peer → Tailscale target, else public IP), the verify-and-lockdown ordering, and every ui string. SSHWaiter returns no value.\n\nAcceptance\ngo build ./... green; go vet ./internal/provision/... clean. Report completion; do NOT tick tasks.md. Tasks: §5.1–5.2.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 524288,
+      "createdAt": "2026-06-17T00:52:37.691445553Z",
+      "updatedAt": "2026-06-17T00:52:37.691445553Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-52b5",
+      "title": "Provision tests and cmd cutover",
+      "description": "Context\n§5.3–5.5, design D14. The provision env round-trip needs a test that would actually fail if Setenv were removed.\n\nOutcome\ninternal/provision/service_test.go with fakes for Azure/Tailscale/Ansible/Wait covering: VM-not-running rejection; auth-key resolution (env \u003e OAuth \u003e none); OAuth-failure path; provision-over-Tailscale vs public-IP selection; post-provision verify-and-lockdown (close public SSH only when the peer verifies). The fake Ansible records os.Getenv(\"TS_AUTHKEY\") AT CALL TIME; the test asserts it equals the sanitized key during the run and is unset after Run returns. appContext gains provision *provision.Service (built from the Azure client, the shared tailscale.Client, and assetDir); doProvision/waitForSSH are removed or become wrappers delegating to a.provision.Run(ctx).\n\nFiles \u0026 scope\ninternal/provision/service_test.go; internal/cmd/root.go (appContext/loadContext); internal/cmd/actions.go (remove/delegate doProvision, waitForSSH).\n\nDesign\nD14: a test that only asserts on ansible.Params stays green even if the env round-trip is dropped — the call-time Getenv assertion is the point of this lap. Assert exact ui strings for the lockdown/verify branches.\n\nAcceptance\ngo test ./internal/provision/... and go test ./internal/cmd pass; the env-round-trip assertion is present and meaningful. Report completion; do NOT tick tasks.md. Tasks: §5.3–5.5.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 589824,
+      "createdAt": "2026-06-17T00:52:37.691446141Z",
+      "updatedAt": "2026-06-17T00:52:37.691446141Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-29e8",
+      "title": "Verify stateutil and provision extraction",
+      "description": "Use the openspec-verify-change skill against improve-architecture, scoped to phases 4–5.\n\nConfirm: stateutil is the single home for connection mapping (conv.go gone; vm and provision will both use it) and depends only on azure + config; provision preserves the TS_AUTHKEY env round-trip (D14) AND has a test that would fail if Setenv were removed — verify by reading the test, not just the green result; host selection and the verify-and-lockdown ordering and strings match the pre-refactor doProvision.\n\nTick the §4 and §5 tasks.md boxes you verify as correctly and thoroughly done. Add a head lap for any substantive gap.",
+      "assignee": "VERIFY",
+      "isDone": false,
+      "order": 655360,
+      "createdAt": "2026-06-17T00:52:37.691449703Z",
+      "updatedAt": "2026-06-17T00:52:37.691449703Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-9ba8",
+      "title": "Extract internal/vm lifecycle service",
+      "description": "Context\n§6.1–6.4, design D4, D13. Source: doUp L159, doDown L255, doRestart L317, doDisk L399, doStatus L451, doSSH L474, teardown cleanup (doTailscaleCleanup L359, printTailscaleCleanupResult L378, tailscaleLogoutScript L351), scrubKnownHosts L42, printInfo L737. vm composes connectivity + provision.\n\nOutcome\ninternal/vm with: service.go — Service{State, Azure AzureLifecycle, TS tailscale.Client, Conn connRestorer, Provision provisioner}; AzureLifecycle = Up/Down/Status/Restart/ResizeDisk/SSH/RunCommand (NOT Info); printInfo, scrubKnownHosts. lifecycle.go — Up/Down/Restart. disk.go — Disk/Status/SSH. cleanup.go — CleanupTailscaleDevices + logout script. loadContext composes vm.Service injecting a.conn and a.provision. actions.go lifecycle do* remain (duplicated) and compiling; cutover is the next lap.\n\nFiles \u0026 scope\nNew internal/vm/{service.go, lifecycle.go, disk.go, cleanup.go}; internal/cmd/root.go to compose vm. Do not delete actions.go do* yet.\n\nDesign\nD4: vm depends on its sub-services through consumer-side interfaces connRestorer{Ready() bool; Restore(ctx) error} and provisioner{Run(ctx) error}, satisfied by *connectivity.Service / *provision.Service — NOT the concrete types (so vm tests inject recording fakes). D13: teardown Tailscale cleanup lives in vm; CleanupTailscaleDevices(deleteOnline, dryRun) serves both Down(delete) and `rover tailscale cleanup`. Use stateutil.SyncConnection / ZeroConnection — do not duplicate mapping. vm must not be imported by connectivity/provision. Behavior frozen.\n\nAcceptance\ngo build ./... green; go vet ./internal/vm/... clean. Report completion; do NOT tick tasks.md. Tasks: §6.1–6.4.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 720896,
+      "createdAt": "2026-06-17T00:52:37.691450375Z",
+      "updatedAt": "2026-06-17T00:52:37.691450375Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-6ef5",
+      "title": "Migrate vm tests onto recording fakes",
+      "description": "Context\n§6.5, design Test Migration Map. vm lifecycle tests assert connectivity behavior; they must inject recording fakes rather than build real sub-services (D4).\n\nOutcome\ninternal/vm/{lifecycle_test.go, disk_test.go, cleanup_test.go} (each ≤400 lines) with fakeAzure (recording AzureLifecycle) and recording connRestorer/provisioner. Move TestDoDown_*, TestDoDisk_*, and the Azure-only TestDoRestart_NoVM/_VMNotRunning/_RestartsAndSyncsConnection. For TestDoRestart_RestoresConnectivityWhenPublicSSHClosed, the vm test asserts the recording connRestorer.Restore was invoked (the `tailscale up` script assertion already moved to connectivity/repair_test.go in the connectivity-tests lap). Add Up coverage: fresh create with Tailscale-not-ready + declined confirm aborts; fresh create auto-provisions unless --no-provision; starting an existing VM invokes Conn.Restore. Add cleanup coverage: no-OAuth error, dry-run printing, delete-online propagation. Move TestInfoRunning to internal/azure/azure_test.go (it tests azure.Info.Running()).\n\nFiles \u0026 scope\nNew internal/vm/*_test.go and internal/azure/azure_test.go. Do NOT move TestRestoreConnectivity_FullDownUpCycle/_ContextCancelled here — they are connectivity tests.\n\nDesign\nRecording fakes; assert composition (\"Restore was invoked\", \"Provision.Run was invoked\"), not nested real services.\n\nAcceptance\ngo test ./internal/vm/... and go test ./internal/azure/... pass. Report completion; do NOT tick tasks.md. Tasks: §6.5.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 786432,
+      "createdAt": "2026-06-17T00:52:37.691450939Z",
+      "updatedAt": "2026-06-17T00:52:37.691450939Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-2086",
+      "title": "Cut cmd over to services and delete the God files",
+      "description": "Context\n§6.6, §7, §8.1–8.2, design D5/D9. The cutover that retires the monolith. High-risk: deletes actions.go/actions_test.go/conv.go and rewires every command.\n\nOutcome\nappContext holds state, assetDir, vm, conn (and provision only if a wrapper still needs it); the azureProvider interface is removed; loadContext builds one azure.New, one tailscale.NewClient, then composes connectivity.New, provision.Service, and vm.Service with default providers. Every Cobra file (up/down/restart/disk/status/ssh/provision/command/connect/tailscale) delegates to a.vm.* / a.conn.* / a.provision.*, constructing a context.Context where the old do* did — no flag/arg/prompt/message change. interactive.go calls the same service methods (CLI/interactive parity). tailscale.go delegates to vm.CleanupTailscaleDevices after its existing prompts. actions.go, conv.go, and actions_test.go are deleted; dead test helpers (mockAzureClient, newTestAppContext, stubTSPing) are gone.\n\nFiles \u0026 scope\ninternal/cmd/{root.go, up.go, down.go, restart.go, disk.go, status.go, ssh.go, provision.go, command.go, connect.go, tailscale.go, interactive.go}; delete actions.go, conv.go, actions_test.go.\n\nDesign\nDelete actions_test.go only after confirming every test in it has an equivalent in a service package (it should, after the connectivity/provision/vm test laps). Keep prompts/default answers/messages byte-identical. go build ./... must pass with the God files gone.\n\nAcceptance\ngo build ./..., go vet ./..., and go test ./... green; grep -rn for actions.go / azureProvider / mockAzureClient under internal/cmd returns nothing. Report completion; do NOT tick tasks.md. Tasks: §6.6, §7.1–7.4, §8.1–8.2.",
+      "assignee": "SENIOR",
+      "isDone": false,
+      "order": 851968,
+      "createdAt": "2026-06-17T00:52:37.691451497Z",
+      "updatedAt": "2026-06-17T00:52:37.691451497Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-2a63",
+      "title": "Verify vm, cmd cutover, and the God-file removal",
+      "description": "Use the openspec-verify-change skill against improve-architecture, scoped to phases 6–8. This is the highest-risk slice.\n\nConfirm: actions.go/actions_test.go/conv.go are gone and no test coverage was lost (compare the new per-package test set against the pre-refactor actions_test.go); every Cobra command and interactive.go delegate to the services with byte-identical prompts/messages/flags; vm composes connectivity/provision through the consumer-side interfaces (D4) and teardown cleanup serves both Down(delete) and `rover tailscale cleanup`; the dependency graph is acyclic (cmd → vm → {provision, connectivity} → leaves; no service imports cmd). Spot-check behavior against the pre-refactor actions.go (git show \u003cpre-refactor-rev\u003e:internal/cmd/actions.go) for prompts, default answers, poll count/wait, lockdown ordering, and fallback messages.\n\nTick the §6, §7, and §8 tasks.md boxes you verify. Add head laps for substantive gaps; apply only tiny safe fixes inline.",
+      "assignee": "VERIFY",
+      "isDone": false,
+      "order": 917504,
+      "createdAt": "2026-06-17T00:52:37.691452046Z",
+      "updatedAt": "2026-06-17T00:52:37.691452046Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-2f2e",
+      "title": "Document the new architecture",
+      "description": "Context\n§10. The refactor needs a navigation guide for future agents. design.md already contains the architecture overview and dependency graph to adapt.\n\nOutcome\nA short \"Architecture\" section in README.md (or docs/architecture.md): command layer = thin adapters; vm/provision/connectivity services; provider seams (tailscale.Client, per-package Azure interfaces); shared state sync in internal/stateutil; the file-size budget. Frame it as the progressive-disclosure / navigation guide. Confirm whether SPEC.md references internal/cmd/actions.go or the old structure and update if so (expected no-op).\n\nFiles \u0026 scope\nREADME.md (or a new docs/architecture.md); SPEC.md only if it references the old layout.\n\nDesign\nSummarize, do not duplicate design.md wholesale — link to it for the decision rationale. Keep it tight and accurate to the shipped layout.\n\nAcceptance\nThe section reflects the shipped package layout and dependency direction. Report completion; do NOT tick tasks.md. Tasks: §10.1–10.2.",
+      "assignee": "JUNIOR",
+      "isDone": false,
+      "order": 983040,
+      "createdAt": "2026-06-17T00:52:37.691452671Z",
+      "updatedAt": "2026-06-17T00:52:37.691452671Z",
+      "completedAt": null
+    },
+    {
+      "id": "rove-b4df",
+      "title": "Final full-change verification",
+      "description": "Run the complete openspec-verify-change against improve-architecture and inspect the whole batch diff.\n\nConfirm all gates: go build ./... and go vet ./... clean; go test ./... green; golangci-lint run clean; file-size budget (§9.4) on files this change created/modified — note that pre-existing internal/config/config.go (324) and internal/tailscale/tailscale.go (378) are out of scope; behavior byte-diff spot-check (§9.5) against the pre-refactor actions.go; test-count sanity (§8.3) ≥ the pre-refactor count. Optionally run the live smoke (§9.6) if Azure quota allows (see the azure-quota-gotcha note). Confirm every one of the 42 tasks is genuinely done and the change is archive-ready.\n\nTick any remaining tasks.md boxes (§8.3, §9, §10) you verify. If anything is incomplete, add a focused head lap rather than over-fixing inline.",
+      "assignee": "VERIFY",
+      "isDone": false,
+      "order": 1048576,
+      "createdAt": "2026-06-17T00:52:37.691453821Z",
+      "updatedAt": "2026-06-17T00:52:37.691453821Z",
+      "completedAt": null
+    }
+  ]
 }
