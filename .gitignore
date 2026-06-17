@@ -8,3 +8,4 @@ scratchpad.md
 
 # local-only overrides
 *.local
+.laps/claim
