@@ -1,6 +1,6 @@
 ## Context
 
-Rover provisions and manages a single Azure VM so a user can SSH in and run Dune. The CLI is Cobra-based (`internal/cmd`). Each subcommand is a thin Cobra file that loads an `appContext` (loaded `config.State` + an `azureProvider` + materialized asset dir) and calls a `do*` function. All of those `do*` functions, plus their helpers, live in `internal/cmd/actions.go` (~750 lines); their tests live in `internal/cmd/actions_test.go` (~1780 lines).
+Rover provisions and manages a single Azure VM so a user can SSH in and run Dune. The CLI is Cobra-based (`internal/cmd`). Each subcommand is a thin Cobra file that loads an `appContext` (loaded `config.State` + an `azureProvider` + materialized asset dir) and calls a `do*` function. All of those `do*` functions, plus their helpers, live in `internal/cmd/actions.go` (~880 lines); their tests live in `internal/cmd/actions_test.go` (~1925 lines).
 
 The provider layer is already partly separated: `internal/azure` (script-backed `az`/Bicep wrapper), `internal/tailscale` (CLI + control-plane API), `internal/ansible` (playbook runner), `internal/config`, `internal/sizes`, `internal/ui`. The seams that are *missing* are between the workflows themselves and between those workflows and their external dependencies — today the latter are global function vars patched by tests.
 
@@ -64,7 +64,7 @@ Services live as top-level domain packages (`internal/connectivity`, `internal/v
 
 ### D2: Eliminate global seams via injected interfaces (resolves Open Question 1's testing concern)
 
-The current seams — `tsFindPeer`, `tsGetAuthKey`, `tsConnect`, `tsPingPeer`, `runRemoteCommandFn`, and the `restoreConnectivityPollCount/Wait` vars — are removed. Each service struct carries its dependencies as interface-typed fields populated by its constructor. Tests construct a service with fakes; production code constructs it with default adapters. The doubles become visible at the call site instead of hiding in package state.
+The current seams — `tsFindPeer`, `tsGetAuthKey`, `tsConnect`, `tsPingPeer`, `runRemoteCommandFn`, the `restoreConnectivityPollCount/Wait` vars, and the `connectReconnect*` vars — are removed. Each service struct carries its dependencies and timing policy as interface-typed fields or explicit config populated by its constructor. Tests construct a service with fakes and fast config; production code constructs it with default adapters. The doubles become visible at the call site instead of hiding in package state.
 
 ### D3: `connectivity` is the flagship deep module
 
@@ -73,7 +73,7 @@ Connectivity is where the real complexity lives and where it has the most caller
 - `Ready()` — local Tailscale readiness gate (was `tailscaleReady`).
 - `Reauthenticate(ctx)` — generate/read an auth key, run `tailscale up` via Azure Run Command, poll until the peer is reachable (was `reauthenticateTailscale`).
 - `Restore(ctx)` — if public SSH is locked down, prefer re-auth, otherwise open public SSH as fallback (was `restoreConnectivity`).
-- `Connect(ctx, extra...)` — `rover connect`: peer lookup, offline/unpingable handling, online-but-unpingable repair, then `tailscale ssh` (was `doConnect`).
+- `Connect(ctx, extra...)` — `rover connect`: peer lookup, offline/unpingable handling, online-but-unpingable repair, `tailscale ssh`, and post-drop reconnect with fresh peer/ping checks (was `doConnect` + `connectWithReconnect`).
 - `RunCommand(ctx, args)` — `rover command` routing: Tailscale-first, repair-when-locked-down, public-SSH fallback (was `doCommand`).
 
 `vm` and `provision` consume `connectivity` rather than reimplementing any of it.
@@ -179,9 +179,11 @@ func ShellArg(s string) string
 
 `AuthKey` returns whether characters were stripped instead of calling `ui.Warn`, so the package has no UI dependency and is trivially table-testable. Callers (`connectivity`, `provision`) emit the existing warning when `stripped` is true, preserving the current message verbatim.
 
-### D12: `PollConfig` replaces package-level poll knobs
+### D12: Connectivity timing config replaces package-level timing knobs
 
 `restoreConnectivityPollCount` (12) and `restoreConnectivityPollWait` (5s) become a `connectivity.PollConfig{ Count int; Wait time.Duration }` field on the service. Production uses `DefaultPoll = PollConfig{Count: 12, Wait: 5 * time.Second}`; tests pass a fast config (e.g. `Count: 2, Wait: time.Millisecond`) to keep them quick, exactly as the current tests do by overriding the vars.
+
+The `connectReconnect*` vars (`MaxConsecutive`, `BaseWait`, `MaxWait`, `HealthyAfter`) become an explicit reconnect policy on `connectivity.Service`, defaulting to the current values (5 rapid failures, 2s base delay, 30s max delay, reset after 1m healthy session). This preserves the landed `rover connect` behavior: clean shell exits stop, error exits reconnect after a fresh peer lookup + `tailscale ping`, and online-but-unpingable peers run the existing bounded repair path without opening public SSH.
 
 ### D13: Teardown-time Tailscale cleanup lives in `vm`
 
@@ -219,6 +221,7 @@ type Service struct {
     TS    tailscale.Client
     Run   CommandRunner
     Poll  PollConfig
+    Reconnect ReconnectConfig
 }
 func New(st *config.State, az AzureControl, ts tailscale.Client) *Service // Run=default, Poll=DefaultPoll
 func (s *Service) Ready() bool
@@ -272,10 +275,10 @@ func (s *Service) CleanupTailscaleDevices(deleteOnline, dryRun bool) (tailscale.
 
 ```
 internal/connectivity/
-  service.go         ← Service, New, PollConfig, DefaultPoll, CommandRunner, defaultCommandRunner,
+  service.go         ← Service, New, PollConfig, ReconnectConfig, defaults, CommandRunner, defaultCommandRunner,
                        AzureControl interface, Ready
   repair.go          ← Reauthenticate, Restore
-  route.go           ← Connect, RunCommand
+  route.go           ← Connect, reconnect helper, RunCommand
   *_test.go          ← repair_test.go, route_test.go, ready_test.go (each ≤400 lines)
 
 internal/provision/
@@ -316,7 +319,7 @@ internal/cmd/
 | --- | --- |
 | `TestRestoreConnectivity_*` (incl. `_FullDownUpCycle` and `_ContextCancelled`), `TestReauthenticate*` | `connectivity/repair_test.go` |
 | `TestTailscaleReady_*` | `connectivity/ready_test.go` |
-| `TestDoConnect_*`, `TestDoCommand_*` | `connectivity/route_test.go` |
+| `TestDoConnect_*` (including reconnect/dropout coverage), `TestDoCommand_*` | `connectivity/route_test.go` |
 | `TestSanitizeAuthKey*`, `TestIsSafeAuthKeyChar`, `TestSanitizeShellArg` | `shellsafe/shellsafe_test.go` |
 | `TestSyncConnection*` plus `configConnFrom`/`stateZeroConn` coverage | `stateutil/stateutil_test.go` |
 | `TestInfoRunning` | `azure/azure_test.go` |
@@ -333,7 +336,7 @@ The "Real-backend verification notes" comment block at the top of `actions_test.
 
 1. `shellsafe` (pure, no deps) — extract + test; update `actions.go` to call it.
 2. `tailscale.Client` interface + `CLI` — add; no behavior change.
-3. `connectivity` — extract using the seams from 1–2; introduce `appContext.conn`/default `tailscale.Client`; update legacy connectivity entry points (`tailscaleReady`, `restoreConnectivity`, `reauthenticateTailscale`, `doConnect`, `doCommand`) to delegate to `a.conn` so existing VM/provision wrappers keep compiling; move connectivity tests in; then delete global vars/poll knobs once no legacy code references them.
+3. `connectivity` — extract using the seams from 1–2; introduce `appContext.conn`/default `tailscale.Client`; update legacy connectivity entry points (`tailscaleReady`, `restoreConnectivity`, `reauthenticateTailscale`, `doConnect`, `doCommand`) to delegate to `a.conn` so existing VM/provision wrappers keep compiling; move connectivity tests in; then delete global vars/timing knobs once no legacy code references them.
 4. `stateutil` — move connection-state conversion/sync helpers out of `cmd` before both `vm` and `provision` need them.
 5. `provision` — extract; move provisioning behavior; inject `Ansible`/`Wait`; introduce `appContext.provision` before any legacy wrapper delegates to it.
 6. `vm` — extract lifecycle + teardown cleanup; compose `connectivity` + `provision`; expose cleanup for `rover tailscale cleanup`.

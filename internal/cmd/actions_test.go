@@ -1595,6 +1595,110 @@ func TestDoConnect_PeerOnline(t *testing.T) {
 	}
 }
 
+func TestDoConnect_ReconnectsAfterDroppedSession(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origConnect := tsConnect
+	origPing := tsPingPeer
+	origMaxConsecutive := connectReconnectMaxConsecutive
+	origBaseWait := connectReconnectBaseWait
+	origMaxWait := connectReconnectMaxWait
+	origHealthyAfter := connectReconnectHealthyAfter
+	defer func() {
+		tsFindPeer = origFindPeer
+		tsConnect = origConnect
+		tsPingPeer = origPing
+		connectReconnectMaxConsecutive = origMaxConsecutive
+		connectReconnectBaseWait = origBaseWait
+		connectReconnectMaxWait = origMaxWait
+		connectReconnectHealthyAfter = origHealthyAfter
+	}()
+
+	connectReconnectMaxConsecutive = 2
+	connectReconnectBaseWait = time.Millisecond
+	connectReconnectMaxWait = time.Millisecond
+	connectReconnectHealthyAfter = time.Hour
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+	tsPingPeer = func(*tailscale.Peer) bool { return true }
+
+	connectCalls := 0
+	tsConnect = func(_, _ string, _ ...string) error {
+		connectCalls++
+		if connectCalls == 1 {
+			return errors.New("connection timed out")
+		}
+		return nil
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	if err := doConnect(a); err != nil {
+		t.Fatalf("doConnect with dropped session: %v", err)
+	}
+	if connectCalls != 2 {
+		t.Fatalf("expected initial connect plus one reconnect, got %d calls", connectCalls)
+	}
+}
+
+func TestDoConnect_CapsRapidReconnectFailures(t *testing.T) {
+	origFindPeer := tsFindPeer
+	origConnect := tsConnect
+	origPing := tsPingPeer
+	origMaxConsecutive := connectReconnectMaxConsecutive
+	origBaseWait := connectReconnectBaseWait
+	origMaxWait := connectReconnectMaxWait
+	origHealthyAfter := connectReconnectHealthyAfter
+	defer func() {
+		tsFindPeer = origFindPeer
+		tsConnect = origConnect
+		tsPingPeer = origPing
+		connectReconnectMaxConsecutive = origMaxConsecutive
+		connectReconnectBaseWait = origBaseWait
+		connectReconnectMaxWait = origMaxWait
+		connectReconnectHealthyAfter = origHealthyAfter
+	}()
+
+	connectReconnectMaxConsecutive = 2
+	connectReconnectBaseWait = time.Millisecond
+	connectReconnectMaxWait = time.Millisecond
+	connectReconnectHealthyAfter = time.Hour
+
+	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName: "rover-vm",
+			DNSName:  "rover-vm.tail94a70e.ts.net.",
+			Online:   true,
+		}, nil
+	}
+	tsPingPeer = func(*tailscale.Peer) bool { return true }
+
+	connectCalls := 0
+	tsConnect = func(_, _ string, _ ...string) error {
+		connectCalls++
+		return errors.New("permission denied")
+	}
+
+	a := newTestAppContext(t, &mockAzureClient{})
+
+	err := doConnect(a)
+	if err == nil {
+		t.Fatal("expected error after capped reconnect failures")
+	}
+	if !contains(err.Error(), "after 2 reconnect attempts") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if connectCalls != 3 {
+		t.Fatalf("expected initial connect plus two reconnect attempts, got %d calls", connectCalls)
+	}
+}
+
 func TestDoConnect_PeerOffline(t *testing.T) {
 	orig := tsFindPeer
 	defer func() { tsFindPeer = orig }()

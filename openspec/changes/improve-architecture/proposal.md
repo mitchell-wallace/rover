@@ -2,10 +2,10 @@
 
 Rover's behavior has accreted into two monolithic files in `package cmd`:
 
-- `internal/cmd/actions.go` (~750 lines) holds every workflow — VM lifecycle, Ansible provisioning, Tailscale verification/repair, public-SSH fallback, command routing, device cleanup, and shell sanitizers — in one flat namespace.
-- `internal/cmd/actions_test.go` (~1780 lines) mixes Azure doubles, Tailscale doubles, recovery scenarios, command-execution tests, and pure validation in a single file.
+- `internal/cmd/actions.go` (~880 lines) holds every workflow — VM lifecycle, Ansible provisioning, Tailscale verification/repair, public-SSH fallback, command routing, device cleanup, and shell sanitizers — in one flat namespace.
+- `internal/cmd/actions_test.go` (~1925 lines) mixes Azure doubles, Tailscale doubles, recovery scenarios, command-execution tests, and pure validation in a single file.
 
-Two structural problems follow. First, the test seams are global mutable package vars (`tsFindPeer`, `tsGetAuthKey`, `tsConnect`, `tsPingPeer`, `runRemoteCommandFn`) and package-level poll knobs (`restoreConnectivityPollCount/Wait`). Tests mutate process-global state, so behavior cannot be exercised through an explicit, injected boundary and the doubles are not visible at the call site. Second, there is no separation between *deciding what should happen* (lifecycle/connectivity decisions) and *the Cobra plumbing that triggers it*; a reader or agent cannot navigate from a command down to a bounded unit of behavior — everything lives in one file.
+Two structural problems follow. First, the test seams are global mutable package vars (`tsFindPeer`, `tsGetAuthKey`, `tsConnect`, `tsPingPeer`, `runRemoteCommandFn`) and package-level timing knobs (`restoreConnectivityPollCount/Wait`, `connectReconnect*`). Tests mutate process-global state, so behavior cannot be exercised through an explicit, injected boundary and the doubles are not visible at the call site. Second, there is no separation between *deciding what should happen* (lifecycle/connectivity decisions) and *the Cobra plumbing that triggers it*; a reader or agent cannot navigate from a command down to a bounded unit of behavior — everything lives in one file.
 
 This change normalizes Rover around small, deep modules with narrow interfaces, so the command layer reads top-to-bottom as thin adapters and each workflow is a self-contained service that is testable through injected providers. Shared state-mapping helpers move out of `cmd` so services can sync persisted connection state without depending on each other. It is a behavior-preserving refactor: no user-visible command, flag, output, or connectivity decision changes.
 
@@ -18,7 +18,7 @@ This change normalizes Rover around small, deep modules with narrow interfaces, 
 - **NEW** `internal/shellsafe` package — pure `AuthKey` and `ShellArg` sanitizers, decoupled from `ui` (they return whether characters were stripped instead of printing warnings).
 - **MODIFIED** `internal/tailscale` — add a small provider-side `Client` interface plus a default `CLI` implementation wrapping the existing package functions, so consumers depend on an interface instead of global vars.
 - **MODIFIED** `internal/cmd` — Cobra files stay thin adapters; `appContext` composes the new services and wires the default providers. `actions.go` and `actions_test.go` are deleted; their behavior moves into the service packages and their tests are split per behavior and relocated next to the code they exercise.
-- **REMOVED** global test seams (`tsFindPeer`, `tsGetAuthKey`, `tsConnect`, `tsPingPeer`, `runRemoteCommandFn`) and package-level poll vars, replaced by injected interfaces and a `PollConfig`.
+- **REMOVED** global test seams (`tsFindPeer`, `tsGetAuthKey`, `tsConnect`, `tsPingPeer`, `runRemoteCommandFn`) and package-level timing vars, replaced by injected interfaces plus explicit `PollConfig` / reconnect policy config.
 
 ## Capabilities
 

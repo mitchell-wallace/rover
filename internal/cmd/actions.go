@@ -25,8 +25,12 @@ var (
 	tsConnect    = tailscale.Connect
 	tsPingPeer   = tailscale.PingPeer
 
-	restoreConnectivityPollCount = 12
-	restoreConnectivityPollWait  = 5 * time.Second
+	restoreConnectivityPollCount   = 12
+	restoreConnectivityPollWait    = 5 * time.Second
+	connectReconnectMaxConsecutive = 5
+	connectReconnectBaseWait       = 2 * time.Second
+	connectReconnectMaxWait        = 30 * time.Second
+	connectReconnectHealthyAfter   = 1 * time.Minute
 
 	runRemoteCommandFn func(name string, args ...string) error
 )
@@ -691,7 +695,7 @@ func doConnect(a *appContext, extra ...string) error {
 			if err == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
 				target := repairedPeer.Target()
 				ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-				return tsConnect(a.state.AdminUsername, target, extra...)
+				return connectWithReconnect(a, target, extra...)
 			}
 		}
 		// Re-auth did not restore the data plane. A VM reboot restarts
@@ -707,7 +711,7 @@ func doConnect(a *appContext, extra ...string) error {
 				if repairedPeer, ferr := tsFindPeer(host); ferr == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
 					target := repairedPeer.Target()
 					ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-					return tsConnect(a.state.AdminUsername, target, extra...)
+					return connectWithReconnect(a, target, extra...)
 				}
 			} else {
 				ui.Warn("Restart attempt failed: %v", rerr)
@@ -719,7 +723,76 @@ func doConnect(a *appContext, extra ...string) error {
 
 	target := peer.Target()
 	ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-	return tsConnect(a.state.AdminUsername, target, extra...)
+	return connectWithReconnect(a, target, extra...)
+}
+
+func connectWithReconnect(a *appContext, target string, extra ...string) error {
+	consecutiveFailures := 0
+	for {
+		started := time.Now()
+		err := tsConnect(a.state.AdminUsername, target, extra...)
+		if err == nil {
+			return nil
+		}
+		if time.Since(started) >= connectReconnectHealthyAfter {
+			consecutiveFailures = 0
+		}
+		consecutiveFailures++
+		if consecutiveFailures > connectReconnectMaxConsecutive {
+			return fmt.Errorf("tailscale ssh disconnected after %d reconnect attempts: %w", connectReconnectMaxConsecutive, err)
+		}
+
+		delay := connectReconnectDelay(consecutiveFailures)
+		ui.Warn("Tailscale SSH disconnected: %v", err)
+		ui.Info("Reconnecting over Tailscale in %s (Ctrl-C to stop)...", delay)
+		time.Sleep(delay)
+
+		peer, perr := reconnectableTailscalePeer(a)
+		if perr != nil {
+			return fmt.Errorf("tailscale ssh disconnected and reconnect check failed: %w", perr)
+		}
+		target = peer.Target()
+		ui.Info("Reconnecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
+	}
+}
+
+func connectReconnectDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := connectReconnectBaseWait
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay >= connectReconnectMaxWait {
+			return connectReconnectMaxWait
+		}
+	}
+	return delay
+}
+
+func reconnectableTailscalePeer(a *appContext) (*tailscale.Peer, error) {
+	host := a.state.TSHostname()
+	peer, err := tsFindPeer(host)
+	if err != nil {
+		return nil, err
+	}
+	if !peer.Online {
+		return nil, fmt.Errorf("%q is offline", host)
+	}
+	if tsPingPeer(peer) {
+		return peer, nil
+	}
+
+	ui.Warn("%q is online in Tailscale but not reachable on the data plane.", host)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	if reauthenticateTailscale(ctx, a) {
+		repairedPeer, err := tsFindPeer(host)
+		if err == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
+			return repairedPeer, nil
+		}
+	}
+	return nil, fmt.Errorf("%q is not reachable over Tailscale", host)
 }
 
 func doCommand(a *appContext, args []string) error {

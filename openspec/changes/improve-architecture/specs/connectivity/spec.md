@@ -2,7 +2,7 @@
 
 ### Requirement: Connectivity logic is isolated behind injected providers
 
-All Tailscale verification, repair, fallback, and routing logic SHALL live in `internal/connectivity` and SHALL depend on its external systems only through injected interfaces (`AzureControl`, `tailscale.Client`) and a `CommandRunner` func seam. The package SHALL NOT use package-level mutable function variables or package-level mutable poll knobs as test seams.
+All Tailscale verification, repair, fallback, and routing logic SHALL live in `internal/connectivity` and SHALL depend on its external systems only through injected interfaces (`AzureControl`, `tailscale.Client`) and a `CommandRunner` func seam. The package SHALL NOT use package-level mutable function variables or package-level mutable timing knobs as test seams.
 
 #### Scenario: Behavior is tested through injected fakes
 - **GIVEN** a `connectivity.Service` constructed with fake `AzureControl` and `tailscale.Client` implementations and a fast `PollConfig`
@@ -68,6 +68,8 @@ Run Command contention (HTTP 409 "Run command extension execution is in progress
 
 `Service.Connect(ctx, extra...)` SHALL connect over Tailscale SSH when the peer is online and reachable. When the peer is online but not reachable on the data plane, it SHALL attempt re-authentication and, if that restores reachability, connect. If re-authentication is exhausted, it SHALL offer (interactively, defaulting to no in non-interactive contexts) to restart the VM — which restarts `tailscaled` and typically clears the wedge — and reconnect automatically if the restart restores reachability; otherwise it SHALL return an error. Peer-not-found, offline, and Tailscale-not-installed/not-running conditions SHALL each return their existing distinct error; the peer-not-found case additionally prints provisioning guidance, while the not-installed/not-running cases return the underlying error verbatim without extra guidance lines.
 
+After a successful initial connection attempt starts `tailscale ssh`, `Service.Connect` SHALL treat a nil return from the SSH process as an intentional clean exit and stop. If `tailscale ssh` returns an error, it SHALL retry using the configured reconnect policy: wait with capped exponential backoff, re-read the peer from Tailscale, require the peer to be online and pingable, then reconnect to the current peer target. If the reconnect check finds the peer online but unpingable, it SHALL use the same bounded re-auth repair path and retry only if the repaired peer pings. Reconnect SHALL NOT open public SSH. Rapid repeated failures SHALL stop after the configured maximum consecutive reconnect attempts; a session that stayed connected longer than the configured healthy duration SHALL reset that rapid-failure counter.
+
 #### Scenario: Online but unpingable, repair succeeds
 - **GIVEN** the peer is online but `tailscale ping` fails, and re-auth restores reachability
 - **WHEN** `Connect` runs
@@ -85,6 +87,15 @@ Run Command contention (HTTP 409 "Run command extension execution is in progress
 #### Scenario: Peer offline
 - **GIVEN** the peer is in the tailnet but offline
 - **THEN** `Connect` returns an "offline" error and does not attempt to connect
+
+#### Scenario: Tailscale SSH drops after connecting
+- **GIVEN** the peer is online and pingable, and the `tailscale ssh` process exits with an error
+- **WHEN** `Connect` runs
+- **THEN** it waits according to the reconnect policy, revalidates the peer, and starts a new Tailscale SSH session
+
+#### Scenario: Rapid reconnect failures are capped
+- **GIVEN** every `tailscale ssh` attempt exits with an error before the healthy-duration threshold
+- **THEN** `Connect` stops after the configured maximum consecutive reconnect attempts and returns the last disconnect error
 
 ### Requirement: Command routing prefers Tailscale with public-SSH fallback
 
