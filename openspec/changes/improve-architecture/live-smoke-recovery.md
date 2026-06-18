@@ -81,3 +81,32 @@ passes" contract. To unblock, a non-interactive Azure login (SP: tenant/client
 ID + secret, or federated token) with a selected subscription and a Tailscale
 auth source (`TS_AUTHKEY` or OAuth client + secret) must be injected into the
 container environment.
+
+## Re-confirmation (lap work-f659, 2026-06-18 UTC)
+
+Re-ran the 9.6 prerequisite and smoke checks in the current container. The
+runtime is still not capable of executing the live smoke, and this attempt is
+blocked earlier than the previous recovery notes:
+
+- No credential environment variable names were present for Azure or Tailscale:
+  no `AZURE_*`, `ARM_*`, `TS_*`, or `TAILSCALE_*` keys.
+- No matching secret, credential, `.env`, Azure, or Tailscale material was found
+  in the workspace, Rally current task context, `/run`, `/var/run`, `/etc`, or
+  `/home/agent` using filename/key-name scans that avoided printing secrets.
+- `az`, `tailscale`, and `tailscaled` are not installed or present on `PATH`.
+- `go build ./...` passed.
+- `go test ./internal/connectivity/... ./internal/vm/... ./internal/provision/... ./internal/cmd`
+  passed.
+- `rover up --no-provision -y` failed at `required command not found: az`.
+- `rover provision` failed at `required command not found: az`.
+- `rover connect` failed at `tailscale CLI not found; install it from
+  https://tailscale.com/download and run 'tailscale up'`.
+- `rover command true` failed at `required command not found: az`.
+- `rover restart` failed at `required command not found: az`.
+- `rover down -y` failed at `required command not found: az`.
+
+Classification remains `needs_user`. Task 9.6 stays unchecked because the live
+smoke did not pass. To unblock a future run, the container needs Azure CLI and
+Tailscale CLI/daemon available, a non-interactive Azure login plus subscription
+selection, and a Tailscale auth source (`TS_AUTHKEY` or OAuth client credentials
+with the required tag grants).
