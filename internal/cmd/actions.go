@@ -14,17 +14,10 @@ import (
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/shellsafe"
 	"github.com/mitchell-wallace/rover/internal/sizes"
+	"github.com/mitchell-wallace/rover/internal/stateutil"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
-
-func (a *appContext) syncConnection(info azure.Info) error {
-	a.state.Connection = configConnFrom(info)
-	if info.VMSize != "" {
-		a.state.Connection.VMSize = info.VMSize
-	}
-	return a.state.Save()
-}
 
 func scrubKnownHosts(host string, port int) {
 	if host == "" {
@@ -124,7 +117,7 @@ func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error
 	}
 	a.state.Family = family
 	a.state.Size = size
-	if err := a.syncConnection(info); err != nil {
+	if err := stateutil.SyncConnection(a.state, info); err != nil {
 		return err
 	}
 
@@ -205,7 +198,7 @@ func doDown(a *appContext, del, assumeYes bool) error {
 		} else {
 			ui.Warn("Tailscale OAuth credentials not configured; skipping control-plane device cleanup.")
 		}
-		a.state.Connection = stateZeroConn()
+		a.state.Connection = stateutil.ZeroConnection()
 		a.state.AnsibleApplied = false
 		a.state.PublicSSHClosed = false
 		if err := a.state.Save(); err != nil {
@@ -213,7 +206,7 @@ func doDown(a *appContext, del, assumeYes bool) error {
 		}
 		ui.Info("All Rover resources deleted. Cost stops.")
 	} else {
-		if err := a.syncConnection(info); err != nil {
+		if err := stateutil.SyncConnection(a.state, info); err != nil {
 			return err
 		}
 		ui.Info("VM deallocated. Resume later with 'rover up'.")
@@ -239,7 +232,7 @@ func doRestart(a *appContext) error {
 	if err != nil {
 		return err
 	}
-	if err := a.syncConnection(info); err != nil {
+	if err := stateutil.SyncConnection(a.state, info); err != nil {
 		return err
 	}
 
@@ -349,7 +342,7 @@ func doDisk(a *appContext, gb int, assumeYes bool) error {
 		return err
 	}
 	a.state.DiskSizeGB = gb
-	if err := a.syncConnection(info); err != nil {
+	if err := stateutil.SyncConnection(a.state, info); err != nil {
 		return err
 	}
 	ui.Info("OS disk is now %d GiB. The root filesystem auto-grows on boot.", gb)
@@ -366,7 +359,7 @@ func doStatus(a *appContext) error {
 		fmt.Println("Run 'rover up [small|medium|large]' to create one.")
 		return nil
 	}
-	if err := a.syncConnection(info); err != nil {
+	if err := stateutil.SyncConnection(a.state, info); err != nil {
 		return err
 	}
 	fmt.Printf("Rover VM: %s (%s)\n", info.VMName, info.PowerState)
@@ -489,7 +482,7 @@ func doProvision(a *appContext) error {
 		return err
 	}
 	a.state.AnsibleApplied = true
-	if err := a.syncConnection(info); err != nil {
+	if err := stateutil.SyncConnection(a.state, info); err != nil {
 		return err
 	}
 	ui.Info("Provisioning complete.")

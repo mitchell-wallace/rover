@@ -178,32 +178,6 @@ func contains(s, sub string) bool {
 }
 
 // ---------------------------------------------------------------------------
-// syncConnection error propagation tests
-// ---------------------------------------------------------------------------
-
-func TestSyncConnection_SavesState(t *testing.T) {
-	mock := &mockAzureClient{}
-	a := newTestAppContext(t, mock)
-
-	info := azure.Info{
-		Exists:     true,
-		PublicIP:   "1.2.3.4",
-		FQDN:       "rover-vm.australiaeast.cloudapp.azure.com",
-		VMSize:     "Standard_B2als_v2",
-		PowerState: "VM running",
-	}
-	if err := a.syncConnection(info); err != nil {
-		t.Fatalf("syncConnection: %v", err)
-	}
-	if a.state.Connection.PublicIP != "1.2.3.4" {
-		t.Errorf("Connection.PublicIP = %q, want 1.2.3.4", a.state.Connection.PublicIP)
-	}
-	if a.state.Connection.VMSize != "Standard_B2als_v2" {
-		t.Errorf("Connection.VMSize = %q, want Standard_B2als_v2", a.state.Connection.VMSize)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // doDown state persistence tests
 // ---------------------------------------------------------------------------
 
