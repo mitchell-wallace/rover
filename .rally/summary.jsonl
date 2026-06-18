@@ -13,3 +13,4 @@
 {"run_id":"relay-1-run-13","summary":"Extracted internal/vm lifecycle service and wired it into loadContext while leaving cmd lifecycle wrappers intact; build, vet, and tests are green.","updated_at":"2026-06-18T02:13:56Z","laps_completed":["rove-9ba8"]}
 {"run_id":"relay-1-run-14","summary":"Migrated vm lifecycle, disk, restart, up, cleanup, and azure Info.Running tests onto recording service fakes; go test ./... passes.","updated_at":"2026-06-18T02:20:52Z","laps_completed":["rove-6ef5"]}
 {"run_id":"relay-1-run-15","summary":"Cmd cut over to vm/connectivity/provision services; actions.go removed; build, vet, test, and acceptance grep passed.","updated_at":"2026-06-18T02:25:15Z","laps_completed":["rove-2086"]}
+{"run_id":"relay-1-run-16","summary":"Verified improve-architecture phases 6-8 against origin/dev, checked off vm/cmd/test-cleanup tasks, and confirmed build/vet/test plus coverage parity.","updated_at":"2026-06-18T02:32:23Z","laps_completed":["rove-2a63"]}

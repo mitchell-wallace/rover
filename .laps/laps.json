@@ -160,11 +160,11 @@
       "title": "Verify vm, cmd cutover, and the God-file removal",
       "description": "Use the openspec-verify-change skill against improve-architecture, scoped to phases 6–8. This is the highest-risk slice.\n\nConfirm: actions.go/actions_test.go/conv.go are gone and no test coverage was lost (compare the new per-package test set against the pre-refactor actions_test.go); every Cobra command and interactive.go delegate to the services with byte-identical prompts/messages/flags; vm composes connectivity/provision through the consumer-side interfaces (D4) and teardown cleanup serves both Down(delete) and `rover tailscale cleanup`; the dependency graph is acyclic (cmd → vm → {provision, connectivity} → leaves; no service imports cmd). Spot-check behavior against the pre-refactor actions.go (git show \u003cpre-refactor-rev\u003e:internal/cmd/actions.go) for prompts, default answers, poll count/wait, lockdown ordering, and fallback messages.\n\nTick the §6, §7, and §8 tasks.md boxes you verify. Add head laps for substantive gaps; apply only tiny safe fixes inline.",
       "assignee": "VERIFY",
-      "isDone": false,
+      "isDone": true,
       "order": 917504,
       "createdAt": "2026-06-17T00:52:37.691452046Z",
-      "updatedAt": "2026-06-17T00:52:37.691452046Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:32:09.231141273Z",
+      "completedAt": "2026-06-18T02:32:09.231141273Z"
     },
     {
       "id": "rove-2f2e",
