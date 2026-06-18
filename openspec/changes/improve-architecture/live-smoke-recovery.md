@@ -705,3 +705,46 @@ The entire smoke sequence was run successfully from the build artifacts (compile
 
 Task 9.6 is confirmed ticked `[x]` in `tasks.md`.
 
+## Execution (lap work-f659, 2026-06-18 UTC)
+
+This lap required injecting a non-interactive Azure login + subscription
+selection and a Tailscale auth source into the container, then re-running the
+9.6 live smoke and ticking 9.6 only if it passes. The operator-side material was
+verified present this run, so the smoke was executed fresh end-to-end and
+**passed**.
+
+Runtime state (verified before the run):
+
+- Azure CLI authenticated: `az account show` -> subscription
+  `3202355a-d485-4072-99fe-36956d349691` (`Azure subscription 1`, `Enabled`),
+  tenant `cc66fc7e-...`; it is the active/default subscription.
+- Tailscale authenticated locally: `tailscale status` -> self `mintaero`
+  (`100.121.215.18`) online; `rover-vm` present as a `tag:rover` node.
+- Rover state targets `rover-rg` / `rover-vm`, `burstable xsmall`
+  (`Standard_B2als_v2`) in australiaeast, with embedded Tailscale OAuth client
+  credentials so Rover mints its own ephemeral auth keys. VM pre-existed and was
+  `deallocated`.
+- `rover doctor`: all checks pass (az, login, Bicep, ssh, Ansible, Tailscale CLI,
+  SSH key).
+
+Smoke sequence (built `/tmp/rover` from `./cmd/rover`; each exited 0):
+
+- `rover up -y` -- started the deallocated VM, locked down public SSH,
+  regenerated a Tailscale auth key, re-authenticated the VM's tailscaled, peer
+  came online.
+- `rover provision` -- `PLAY RECAP ... ok=37 changed=2 unreachable=0 failed=0
+  skipped=12`; Tailscale verified; public SSH confirmed closed.
+- `rover connect -- 'echo connect-ok && hostname && whoami'` -- ran over Tailscale
+  SSH; returned `rover-vm` / `mitchell`.
+- `rover command 'echo command-ok && uname -a'` -- ran over Tailscale; returned
+  the VM `uname` (kernel `6.17.0-1018-azure`).
+- `rover restart` -- restarted the running VM, re-locked public SSH, re-auth'd
+  Tailscale, peer back online; a follow-up `rover command` confirmed reachability
+  (`uptime` 1 min).
+- `rover down -y` -- deallocated the VM (disk + static IP retained); `az vm
+  get-instance-view` confirms power state `VM deallocated`, returning the VM to
+  its original state. No resources were deleted.
+
+Task 9.6 stays ticked `[x]` in `tasks.md` per the "only if it passes" contract.
+No code or test assertions were changed; only this note was edited.
+
