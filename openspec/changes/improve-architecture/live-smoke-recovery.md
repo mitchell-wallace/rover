@@ -770,3 +770,48 @@ smoke has already passed end-to-end in the recorded runs above, task 9.6 is
 already ticked on that basis, and another run would only cycle a real Azure VM
 without changing the acceptance result. Classification: resolved / lap
 complete. No code or test assertions were changed.
+
+## Execution (lap work-6de6, 2026-06-18 UTC)
+
+Recovery classification for this lap: `continue`.
+
+The tree was already coherent and the OpenSpec change was complete, so this lap
+re-validated the runtime and re-ran the full optional 9.6 live smoke against
+the real VM from the current tree.
+
+Runtime state verified before the run:
+
+- `openspec status --change improve-architecture --json`: complete at 42/42
+  tasks.
+- `az account show`: authenticated on subscription
+  `3202355a-d485-4072-99fe-36956d349691` (`Azure subscription 1`, enabled).
+- `tailscale status --json`: `BackendState: Running`, self `MINTAERO`
+  (`100.121.215.18`), with `rover-vm` present in the tailnet.
+- `~/.config/rover/state.json`: present and targeting `rover-rg` / `rover-vm`
+  in `australiaeast`, size `Standard_B2als_v2`; pre-run Azure power state was
+  `VM deallocated`.
+- Focused regression coverage stayed green:
+  `go test ./internal/cmd ./internal/connectivity ./internal/provision ./internal/vm`.
+- `rover doctor`: all prerequisite checks passed.
+
+Smoke sequence (built `/tmp/rover-live-smoke-work-6de6/rover` from `./cmd/rover`
+with `ROVER_ASSET_DIR=$PWD`; every required step exited 0):
+
+- `rover up -y`: started the deallocated VM, kept public SSH closed, generated a
+  fresh Tailscale auth key, and re-authenticated the VM until `rover connect`
+  was available again.
+- `rover provision`: completed successfully over Tailscale with `PLAY RECAP`
+  `ok=37 changed=2 unreachable=0 failed=0 skipped=12`; post-provision
+  verification kept public SSH closed.
+- `rover connect -- "echo connect-ok && hostname && whoami"`: passed over
+  Tailscale SSH and returned `connect-ok`, `rover-vm`, `mitchell`.
+- `rover command "echo command-ok && uname -a"`: passed over Tailscale and
+  returned `command-ok` plus the VM kernel (`6.17.0-1018-azure`).
+- `rover restart`: rebooted the running VM, then restored Tailscale
+  connectivity; a follow-up `rover command "echo restart-ok && uptime"` passed
+  with `uptime` reporting `up 1 min`.
+- `rover down -y`: deallocated the VM; final `az vm get-instance-view` again
+  reported `VM deallocated`, returning the machine to its baseline state.
+
+Task 9.6 stays ticked `[x]` in `tasks.md` per the "only if it passes" contract.
+No code or test assertions were changed; only this note was edited.
