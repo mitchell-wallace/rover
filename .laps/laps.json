@@ -254,11 +254,11 @@
       "id": "work-d182",
       "title": "Unblock improve-architecture 9...",
       "description": "Unblock improve-architecture 9.6 by provisioning Azure CLI and Tailscale CLI/daemon in the container, injecting non-interactive Azure auth plus selected subscription and a Tailscale auth source, then rerun rover up/provision/connect/command/restart/down and tick 9.6 only if it passes.",
-      "isDone": false,
+      "isDone": true,
       "order": 589824,
       "createdAt": "2026-06-18T05:39:25.30707867Z",
-      "updatedAt": "2026-06-18T05:39:25.30707867Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T12:13:33.790063704Z",
+      "completedAt": "2026-06-18T12:13:33.790063704Z"
     },
     {
       "id": "work-f659",
