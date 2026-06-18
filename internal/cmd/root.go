@@ -12,6 +12,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/connectivity"
 	"github.com/mitchell-wallace/rover/internal/provision"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/vm"
 	"github.com/spf13/cobra"
 
 	assets "github.com/mitchell-wallace/rover"
@@ -63,6 +64,7 @@ type azureProvider interface {
 type appContext struct {
 	state     *config.State
 	azure     azureProvider
+	vm        *vm.Service
 	conn      *connectivity.Service
 	provision *provision.Service
 	assetDir  string
@@ -88,9 +90,17 @@ func loadContext() (*appContext, error) {
 	tsClient := tailscale.NewClient()
 	conn := connectivity.New(st, az, tsClient)
 	prov := provision.New(st, az, tsClient, dir)
+	vmSvc := &vm.Service{
+		State:     st,
+		Azure:     az,
+		TS:        tsClient,
+		Conn:      conn,
+		Provision: prov,
+	}
 	return &appContext{
 		state:     st,
 		azure:     az,
+		vm:        vmSvc,
 		conn:      conn,
 		provision: prov,
 		assetDir:  dir,
