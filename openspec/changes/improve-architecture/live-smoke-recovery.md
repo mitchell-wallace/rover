@@ -228,3 +228,24 @@ cannot execute the optional 9.6 live smoke. Task 9.6 remains unchecked per the
 To unblock, inject a real non-interactive Azure login with a selected
 subscription and authenticated local Tailscale state or auth material into this
 container before reassigning the smoke again.
+
+## Re-confirmation (lap work-0d22 rerun, 2026-06-18 UTC)
+
+This lap was reassigned again with the same instruction that operator-provided
+Azure and Tailscale credentials had been injected. The current runtime still
+does not reflect that injection:
+
+- The expected Azure and Tailscale credential names remain unset in the process
+  environment: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+  `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `ARM_*`,
+  `AZURE_FEDERATED_TOKEN_FILE`, `TS_AUTHKEY`, `TAILSCALE_AUTHKEY`,
+  `TAILSCALE_CLIENT_ID`, and `TAILSCALE_CLIENT_SECRET`.
+- `az account show --output json` still fails with `ERROR: Please run 'az login'
+  to setup account.`
+- `tailscale status --json` still fails with `failed to connect to local
+  tailscaled; it doesn't appear to be running`.
+
+Classification remains `needs_user`. The current container still lacks the
+operator-side Azure login and Tailscale auth/state required to start the 9.6
+live smoke, so task 9.6 remains unchecked. No code or test assertions were
+changed in this rerun.
