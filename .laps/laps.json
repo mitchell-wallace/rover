@@ -211,6 +211,16 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-d182",
+      "title": "Unblock improve-architecture 9...",
+      "description": "Unblock improve-architecture 9.6 by provisioning Azure CLI and Tailscale CLI/daemon in the container, injecting non-interactive Azure auth plus selected subscription and a Tailscale auth source, then rerun rover up/provision/connect/command/restart/down and tick 9.6 only if it passes.",
+      "isDone": false,
+      "order": 589824,
+      "createdAt": "2026-06-18T05:39:25.30707867Z",
+      "updatedAt": "2026-06-18T05:39:25.30707867Z",
+      "completedAt": null
+    },
+    {
       "id": "work-f659",
       "title": "Inject a non-interactive Azure...",
       "description": "Inject a non-interactive Azure login (service principal: AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, or federated-workload AZURE_FEDERATED_TOKEN_FILE) plus an 'az account set --subscription \u003cid\u003e' selection, AND a Tailscale auth source (TS_AUTHKEY or Tailscale OAuth client id+secret with the required tag grants) into the container environment, then re-run improve-architecture 9.6 live smoke (rover up/provision/connect/command/restart/down) and tick 9.6 only if it passes.",
