@@ -211,6 +211,16 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-db04",
+      "title": "Inject a real non-interactive ...",
+      "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
+      "isDone": false,
+      "order": 262144,
+      "createdAt": "2026-06-18T07:15:11.962246884Z",
+      "updatedAt": "2026-06-18T07:15:11.962246884Z",
+      "completedAt": null
+    },
+    {
       "id": "work-0d22",
       "title": "Operator explicitly injects re...",
       "description": "Operator explicitly injects real Azure and Tailscale credentials into the container environment before re-assigning the smoke test",
