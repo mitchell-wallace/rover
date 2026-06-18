@@ -1,6 +1,6 @@
 // Package cmd wires up Rover's Cobra commands. Interactive mode (bare `rover`)
-// and the non-interactive subcommands call the same service functions in
-// internal/azure and internal/ansible, so the two paths stay at parity.
+// and the non-interactive subcommands call the same service methods, so the
+// two paths stay at parity.
 package cmd
 
 import (

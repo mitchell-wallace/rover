@@ -11,7 +11,7 @@ import (
 )
 
 // runInteractive drives the menu shown for a bare `rover` invocation. Every
-// branch calls the same do* functions as the non-interactive subcommands.
+// branch calls the same service methods as the non-interactive subcommands.
 func runInteractive() error {
 	if !ui.Interactive() {
 		// No TTY: fall back to a status summary rather than blocking on a prompt.
