@@ -171,11 +171,11 @@
       "title": "Document the new architecture",
       "description": "Context\n§10. The refactor needs a navigation guide for future agents. design.md already contains the architecture overview and dependency graph to adapt.\n\nOutcome\nA short \"Architecture\" section in README.md (or docs/architecture.md): command layer = thin adapters; vm/provision/connectivity services; provider seams (tailscale.Client, per-package Azure interfaces); shared state sync in internal/stateutil; the file-size budget. Frame it as the progressive-disclosure / navigation guide. Confirm whether SPEC.md references internal/cmd/actions.go or the old structure and update if so (expected no-op).\n\nFiles \u0026 scope\nREADME.md (or a new docs/architecture.md); SPEC.md only if it references the old layout.\n\nDesign\nSummarize, do not duplicate design.md wholesale — link to it for the decision rationale. Keep it tight and accurate to the shipped layout.\n\nAcceptance\nThe section reflects the shipped package layout and dependency direction. Report completion; do NOT tick tasks.md. Tasks: §10.1–10.2.",
       "assignee": "JUNIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 983040,
       "createdAt": "2026-06-17T00:52:37.691452671Z",
-      "updatedAt": "2026-06-17T00:52:37.691452671Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:36:50.477621179Z",
+      "completedAt": "2026-06-18T02:36:50.477621179Z"
     },
     {
       "id": "rove-b4df",
