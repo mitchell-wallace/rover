@@ -17,11 +17,11 @@
       "title": "Add tailscale.Client interface and CLI adapter",
       "description": "Context\nimprove-architecture §2, design D8. Consumers currently reach Tailscale through global function vars in actions.go (tsFindPeer/tsGetAuthKey/tsConnect/tsPingPeer). This lap introduces the provider-side interface they will depend on instead.\n\nOutcome\ninternal/tailscale/client.go adds a Client interface (FindPeer, PingPeer, GetAuthKey, Connect, CleanupDevices), a CLI struct implementing it by delegating to the existing package funcs, and NewClient() Client. Existing package funcs stay as-is. No behavior change.\n\nFiles \u0026 scope\nNew internal/tailscale/client.go only. Do not modify tailscale.go or any consumer yet.\n\nDesign\nD8: the default adapter MUST live in package tailscale (not connectivity) to avoid the import cycle — connectivity will import tailscale for the Peer/CleanupResult types. Methods are thin delegations with no logic.\n\nAcceptance\ngo build ./... and go test ./... green. Report completion; do NOT tick tasks.md. Tasks: §2 (2.1–2.2).",
       "assignee": "JUNIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 131072,
       "createdAt": "2026-06-17T00:52:37.691441465Z",
-      "updatedAt": "2026-06-17T00:52:37.691441465Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T00:40:35.284672844Z",
+      "completedAt": "2026-06-18T00:40:35.284672844Z"
     },
     {
       "id": "rove-ff28",
