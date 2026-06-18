@@ -14,6 +14,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
+	"github.com/mitchell-wallace/rover/internal/shellsafe"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/mitchell-wallace/rover/internal/ui"
@@ -129,32 +130,11 @@ func restoreConnectivity(ctx context.Context, a *appContext) error {
 }
 
 func sanitizeAuthKey(key string) string {
-	var b strings.Builder
-	var stripped bool
-	for _, r := range key {
-		if isSafeAuthKeyChar(r) {
-			b.WriteRune(r)
-		} else {
-			stripped = true
-		}
-	}
+	clean, stripped := shellsafe.AuthKey(key)
 	if stripped {
 		ui.Warn("Auth key contained unexpected characters — they were stripped. Use only alphanumeric, '-', or '_'.")
 	}
-	return b.String()
-}
-
-func isSafeAuthKeyChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_'
-}
-
-func sanitizeShellArg(s string) string {
-	return strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ':' || r == '.' {
-			return r
-		}
-		return -1
-	}, s)
+	return clean
 }
 
 // buildReauthScript returns the Run Command script used to repair Tailscale
@@ -172,7 +152,7 @@ fi
 sudo timeout 60s systemctl restart tailscaled 2>&1 || true
 sleep 3
 sudo timeout 120s tailscale up --authkey='%s' --ssh --hostname='%s' --advertise-tags='%s'`,
-		authKey, sanitizeShellArg(hostname), sanitizeShellArg(tags))
+		authKey, shellsafe.ShellArg(hostname), shellsafe.ShellArg(tags))
 }
 
 // reportRunCommandFailure surfaces a RunCommand error to the user. When the

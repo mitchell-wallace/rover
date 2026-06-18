@@ -730,63 +730,6 @@ func TestRestoreConnectivity_FullDownUpCycle(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// sanitizeAuthKey tests
-// ---------------------------------------------------------------------------
-
-func TestSanitizeAuthKey(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"alphanumeric", "tskey-auth-abc123XYZ", "tskey-auth-abc123XYZ"},
-		{"with dashes and underscores", "tskey_auth-abc-123_XYZ", "tskey_auth-abc-123_XYZ"},
-		{"strips single quotes", "tskey'auth", "tskeyauth"},
-		{"strips double quotes", `tskey"auth`, "tskeyauth"},
-		{"strips backticks", "tskey`auth", "tskeyauth"},
-		{"strips semicolons", "tskey;rm-rf", "tskeyrm-rf"},
-		{"strips dollar sign", "tskey$var", "tskeyvar"},
-		{"strips backslash", `tskey\auth`, "tskeyauth"},
-		{"strips spaces", "ts key auth", "tskeyauth"},
-		{"strips pipe", "tskey|evil", "tskeyevil"},
-		{"strips ampersand", "tskey&&evil", "tskeyevil"},
-		{"empty string", "", ""},
-		{"only special chars", "';\"`|&", ""},
-		{"dots stripped", "ts.key", "tskey"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeAuthKey(tt.input)
-			if got != tt.want {
-				t.Errorf("sanitizeAuthKey(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSanitizeAuthKey_StripsWithWarning(t *testing.T) {
-	key := sanitizeAuthKey("tskey'inject")
-	if key != "tskeyinject" {
-		t.Errorf("expected stripped key, got %q", key)
-	}
-}
-
-func TestIsSafeAuthKeyChar(t *testing.T) {
-	safe := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-	for _, r := range safe {
-		if !isSafeAuthKeyChar(r) {
-			t.Errorf("expected %q to be safe", r)
-		}
-	}
-	unsafe := "'\"`;$\\|&!(){}[]<> \t\n"
-	for _, r := range unsafe {
-		if isSafeAuthKeyChar(r) {
-			t.Errorf("expected %q to be unsafe", r)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // syncConnection error propagation tests
 // ---------------------------------------------------------------------------
 
@@ -1527,33 +1470,6 @@ func TestDoCommand_EmptyArgs(t *testing.T) {
 	lastArg := calledArgs[len(calledArgs)-1]
 	if lastArg != "" {
 		t.Errorf("expected empty command string, got %q", lastArg)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// sanitizeShellArg tests
-// ---------------------------------------------------------------------------
-
-func TestSanitizeShellArg(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"rover-vm", "rover-vm"},
-		{"tag:rover", "tag:rover"},
-		{"rover-vm.tailnet.ts.net", "rover-vm.tailnet.ts.net"},
-		{"rover';rm -rf /", "roverrm-rf"},
-		{`rover"$(evil)`, "roverevil"},
-		{"clean_name-123", "clean_name-123"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := sanitizeShellArg(tt.input)
-			if got != tt.want {
-				t.Errorf("sanitizeShellArg(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
 	}
 }
 
