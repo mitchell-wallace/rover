@@ -565,3 +565,55 @@ service-principal or federated-token material, no selected subscription, and no
 authenticated local Tailscale state/auth material in this container runtime for
 the agent to inject. Task 9.6 remains unchecked per the "tick only if it passes"
 contract; no code or test assertions were changed.
+
+## Re-confirmation (lap work-d277 rerun 4, 2026-06-18 UTC)
+
+Re-read the OpenSpec apply context for `improve-architecture`: the change is
+still at 41/42 tasks complete, with only optional live smoke task 9.6 unchecked.
+This rerun again attempted to discover and use real non-interactive Azure and
+Tailscale auth material before running the live smoke.
+
+Current runtime findings:
+
+- `az` 2.45.0 and `tailscale`/`tailscaled` 1.98.4 are installed.
+- No Azure or Tailscale credential variable names are present in exported env,
+  shell vars, or scanned process environments: no `AZURE_*`, `ARM_*`,
+  `AZURE_FEDERATED_TOKEN_FILE`, `ARM_OIDC_TOKEN*`, `TS_AUTHKEY`,
+  `TAILSCALE_AUTHKEY`, `TS_OAUTH_CLIENT_*`, or `TAILSCALE_CLIENT_*`.
+- Targeted filename and content scans of standard workspace/user/runtime
+  locations found no service-principal secret, federated token, Tailscale auth
+  key, or Tailscale OAuth material. Matches were limited to Rover source/docs,
+  recovery notes, unrelated plugin setup docs, and prior agent transcripts that
+  mention credential names, not usable auth values.
+- `~/.azure/azureProfile.json` still contains zero subscriptions, and
+  `~/.azure/accessTokens.json` is absent.
+- `~/.config/rover/state.json`, `/var/lib/tailscale/tailscaled.state`,
+  `/run/tailscale/tailscaled.sock`, and `/var/run/tailscale/tailscaled.sock` are
+  absent.
+- The conditional service-principal/federated Azure login path again had no
+  env-backed material to use; no subscription source was available to select.
+- `az account show --output json` fails with `Please run 'az login'`.
+- `az account list --output json` returns `[]` with the Azure CLI login warning.
+- `az login --identity --output json` fails with MSI 403 Forbidden.
+- `tailscale status --json` fails because local `tailscaled` is not running.
+- A temporary userspace `tailscaled` starts, but `tailscale status --json`
+  reports `BackendState: NeedsLogin`, `selfOnline: false`, and zero peers.
+
+Verification and smoke rerun:
+
+- `go build ./...` passed.
+- `go test ./internal/connectivity/... ./internal/vm/... ./internal/provision/... ./internal/cmd`
+  passed.
+- `go run ./cmd/rover up --no-provision -y` failed at `not logged in to Azure`.
+- `go run ./cmd/rover provision` failed at `not logged in to Azure`.
+- `go run ./cmd/rover connect -- true` failed at `tailscale status: exit status
+  1`.
+- `go run ./cmd/rover command true` failed at `not logged in to Azure`.
+- `go run ./cmd/rover restart` failed at `not logged in to Azure`.
+- `go run ./cmd/rover down -y` failed at `not logged in to Azure`.
+
+Classification remains `needs_user`. There is still no real Azure
+service-principal or federated-token material, no selected subscription, and no
+authenticated local Tailscale state/auth material in this container runtime for
+the agent to inject. Task 9.6 remains unchecked per the "tick only if it passes"
+contract; no code or test assertions were changed.
