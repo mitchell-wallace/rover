@@ -39,11 +39,11 @@
       "title": "Migrate connectivity tests onto injected fakes",
       "description": "Context\n§3.4–3.6, design Test Migration Map. The current tests in actions_test.go drive behavior through global stubs (tsFindPeer/tsPingPeer/tsGetAuthKey/tsConnect/runRemoteCommandFn) and timing-var overrides; they must be re-pointed onto constructor-injected fakes and explicit fast config.\n\nOutcome\nconnectivity package tests, green, with zero process-global mutation. testutil_test.go provides fakeAzure and fakeTailscale (implementing AzureControl / tailscale.Client, recording calls). repair_test.go: all TestRestoreConnectivity_* (incl. _FullDownUpCycle and _ContextCancelled) plus reauth coverage, and the `tailscale up` Run Command script assertion split out of TestDoRestart_RestoresConnectivityWhenPublicSSHClosed. ready_test.go: TestTailscaleReady_*. route_test.go: TestDoConnect_* (including reconnect/dropout and rapid-failure cap coverage) and TestDoCommand_*. testdata/REALBACKEND.md preserves the \"Real-backend verification notes\" block from the top of actions_test.go.\n\nFiles \u0026 scope\nNew internal/connectivity/*_test.go and testdata/REALBACKEND.md. Leave the originals in actions_test.go for now — they still compile against actions.go and are deleted in the cmd-cutover lap. Each test file ≤400 lines (split if needed).\n\nDesign\nInject a fast PollConfig{Count:2, Wait:time.Millisecond} where the old tests overrode poll vars, and a fast ReconnectConfig where the current reconnect tests override connectReconnect* vars. Preserve exact assertions, including: TestDoConnect_TailscaleNotInstalled/NotRunning assert only the underlying error strings (no extra ui guidance), reconnect does not open public SSH, and the command-failure test asserts the wrapped `name: …` message.\n\nAcceptance\ngo test ./internal/connectivity/... green; no global-var or timing-knob overrides in the new tests. Report completion; do NOT tick tasks.md. Tasks: §3.4–3.6.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 262144,
       "createdAt": "2026-06-17T00:52:37.691443034Z",
-      "updatedAt": "2026-06-17T00:52:37.691443034Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T00:57:23.922846924Z",
+      "completedAt": "2026-06-18T00:57:23.922846924Z"
     },
     {
       "id": "rove-0ea3",
