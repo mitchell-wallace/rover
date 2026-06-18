@@ -182,10 +182,21 @@
       "title": "Final full-change verification",
       "description": "Run the complete openspec-verify-change against improve-architecture and inspect the whole batch diff.\n\nConfirm all gates: go build ./... and go vet ./... clean; go test ./... green; golangci-lint run clean; file-size budget (§9.4) on files this change created/modified — note that pre-existing internal/config/config.go (324) and internal/tailscale/tailscale.go (378) are out of scope; behavior byte-diff spot-check (§9.5) against the pre-refactor actions.go; test-count sanity (§8.3) ≥ the pre-refactor count. Optionally run the live smoke (§9.6) if Azure quota allows (see the azure-quota-gotcha note). Confirm every one of the 42 tasks is genuinely done and the change is archive-ready.\n\nTick any remaining tasks.md boxes (§8.3, §9, §10) you verify. If anything is incomplete, add a focused head lap rather than over-fixing inline.",
       "assignee": "VERIFY",
-      "isDone": false,
+      "isDone": true,
       "order": 1048576,
       "createdAt": "2026-06-17T00:52:37.691453821Z",
-      "updatedAt": "2026-06-17T00:52:37.691453821Z",
+      "updatedAt": "2026-06-18T02:44:58.216693494Z",
+      "completedAt": "2026-06-18T02:44:58.216693494Z"
+    },
+    {
+      "id": "work-0743",
+      "title": "Optional live Azure smoke for improve-architecture",
+      "description": "Run the §9.6 live smoke in an environment with Azure tooling and quota: verify rover up/provision/connect/command/restart/down match pre-refactor behavior, then tick tasks.md 9.6 if it passes. Blocked here because az CLI is not installed in this workspace.",
+      "assignee": "VERIFY",
+      "isDone": false,
+      "order": 983040,
+      "createdAt": "2026-06-18T02:44:13.391700084Z",
+      "updatedAt": "2026-06-18T02:44:13.391700084Z",
       "completedAt": null
     }
   ]

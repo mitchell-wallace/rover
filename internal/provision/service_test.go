@@ -66,7 +66,7 @@ func (f *fakeTailscale) PingPeer(*tailscale.Peer) bool {
 	return false
 }
 
-func (f *fakeTailscale) GetAuthKey(clientID, secret string, tags []string) (string, error) {
+func (f *fakeTailscale) GetAuthKey(_, _ string, _ []string) (string, error) {
 	f.getAuthKeyCalls++
 	return f.authKey, f.authKeyErr
 }

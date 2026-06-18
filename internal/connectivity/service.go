@@ -1,3 +1,4 @@
+// Package connectivity owns Rover's Tailscale readiness, repair, and routing flows.
 package connectivity
 
 import (

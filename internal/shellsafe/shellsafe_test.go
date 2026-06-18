@@ -4,10 +4,10 @@ import "testing"
 
 func TestAuthKey(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		want          string
-		wantStripped  bool
+		name         string
+		input        string
+		want         string
+		wantStripped bool
 	}{
 		{"alphanumeric", "tskey-auth-abc123XYZ", "tskey-auth-abc123XYZ", false},
 		{"with dashes and underscores", "tskey_auth-abc-123_XYZ", "tskey_auth-abc-123_XYZ", false},

@@ -58,14 +58,14 @@
 
 ## 9. Verification
 
-- [ ] 9.1 `go build ./...` and `go vet ./...` clean.
-- [ ] 9.2 `go test ./...` green.
-- [ ] 9.3 `golangci-lint run` clean.
-- [ ] 9.4 File-size budget check on files this change creates or modifies: no `.go` source file > 300 lines and no `_test.go` file > 400 lines, except files carrying a top-of-file justification comment. (`find internal -name '*.go' | xargs wc -l | sort -n`) Pre-existing, untouched files are out of scope: `internal/config/config.go` (324) and `internal/tailscale/tailscale.go` (378) already exceed the budget and are not retrofitted here (`tailscale.go` stays as-is per D8 — the new `Client` adapter lands in a separate `client.go`).
-- [ ] 9.5 Behavior diff spot-check against pre-refactor `git show HEAD:internal/cmd/actions.go`: prompts, default answers, poll count/wait, lockdown ordering, and fallback messages are byte-identical.
+- [x] 9.1 `go build ./...` and `go vet ./...` clean.
+- [x] 9.2 `go test ./...` green.
+- [x] 9.3 `golangci-lint run` clean.
+- [x] 9.4 File-size budget check on files this change creates or modifies: no `.go` source file > 300 lines and no `_test.go` file > 400 lines, except files carrying a top-of-file justification comment. (`find internal -name '*.go' | xargs wc -l | sort -n`) Pre-existing, untouched files are out of scope: `internal/config/config.go` (324) and `internal/tailscale/tailscale.go` (378) already exceed the budget and are not retrofitted here (`tailscale.go` stays as-is per D8 — the new `Client` adapter lands in a separate `client.go`).
+- [x] 9.5 Behavior diff spot-check against pre-refactor `git show HEAD:internal/cmd/actions.go`: prompts, default answers, poll count/wait, lockdown ordering, and fallback messages are byte-identical.
 - [ ] 9.6 Live smoke (optional, per `azure-quota-gotcha` memory): `rover up`/`provision`/`connect`/`command`/`restart`/`down` paths behave as before on a real VM if quota allows.
 
 ## 10. Documentation
 
-- [ ] 10.1 Add a short "Architecture" section to `README.md` (or `docs/architecture.md`): command layer = thin adapters; `vm`/`provision`/`connectivity` services; provider seams (`tailscale.Client`, per-package Azure interfaces); shared state sync lives in `internal/stateutil`; the file-size budget. Frame it as the navigation/progressive-disclosure guide for future agents.
-- [ ] 10.2 Update `SPEC.md` if it references `internal/cmd/actions.go` or the old structure. (Current `SPEC.md` has no such reference — likely a no-op; confirm during impl.)
+- [x] 10.1 Add a short "Architecture" section to `README.md` (or `docs/architecture.md`): command layer = thin adapters; `vm`/`provision`/`connectivity` services; provider seams (`tailscale.Client`, per-package Azure interfaces); shared state sync lives in `internal/stateutil`; the file-size budget. Frame it as the navigation/progressive-disclosure guide for future agents.
+- [x] 10.2 Update `SPEC.md` if it references `internal/cmd/actions.go` or the old structure. (Current `SPEC.md` has no such reference — likely a no-op; confirm during impl.)
