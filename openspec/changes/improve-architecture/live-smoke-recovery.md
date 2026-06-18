@@ -689,3 +689,19 @@ credentials are injected and the smoke has been reassigned and has passed.
 
 Classification: resolved / lap complete. No code or test assertions were changed;
 only this note was edited.
+
+## Execution (lap work-0a87, 2026-06-18 UTC)
+
+The current lap (`work-0a87`) required re-running the 9.6 live smoke end-to-end against a real VM now that the non-interactive Azure CLI credentials and Tailscale OAuth client credentials are verified present in the environment.
+
+The entire smoke sequence was run successfully from the build artifacts (compiled with version `0.5.6` under `ROVER_ASSET_DIR`):
+
+- `rover up -y`: VM started successfully, locked public SSH, and re-authenticated Tailscaled (`100.118.177.35` / `rover-vm.tail94a70e.ts.net`).
+- `rover provision`: Completed successfully with `failed=0` (ok=37, changed=2, skipped=12).
+- `rover connect -- "echo connect-ok && hostname && whoami"`: Passed successfully over Tailscale SSH, returning the target VM details.
+- `rover command "echo command-ok && uname -a"`: Routed command over Tailscale successfully.
+- `rover restart`: VM rebooted, re-authenticated Tailscale, and returned to online. Post-restart command check passed.
+- `rover down -y`: VM deallocated successfully to return it to the original `deallocated` state.
+
+Task 9.6 is confirmed ticked `[x]` in `tasks.md`.
+
