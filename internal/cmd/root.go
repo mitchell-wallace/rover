@@ -10,6 +10,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/connectivity"
+	"github.com/mitchell-wallace/rover/internal/provision"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/spf13/cobra"
 
@@ -60,10 +61,11 @@ type azureProvider interface {
 
 // appContext bundles the loaded state and a ready Azure client.
 type appContext struct {
-	state    *config.State
-	azure    azureProvider
-	conn     *connectivity.Service
-	assetDir string
+	state     *config.State
+	azure     azureProvider
+	conn      *connectivity.Service
+	provision *provision.Service
+	assetDir  string
 }
 
 // loadStateOnly loads state without materializing assets (for commands that
@@ -85,10 +87,12 @@ func loadContext() (*appContext, error) {
 	az := azure.New(st, dir)
 	tsClient := tailscale.NewClient()
 	conn := connectivity.New(st, az, tsClient)
+	prov := provision.New(st, az, tsClient, dir)
 	return &appContext{
-		state:    st,
-		azure:    az,
-		conn:     conn,
-		assetDir: dir,
+		state:     st,
+		azure:     az,
+		conn:      conn,
+		provision: prov,
+		assetDir:  dir,
 	}, nil
 }

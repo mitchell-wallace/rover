@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/connectivity"
+	"github.com/mitchell-wallace/rover/internal/provision"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 )
 
@@ -140,12 +143,17 @@ func newTestAppContext(t *testing.T, mock *mockAzureClient) *appContext {
 	if err := st.Save(); err != nil {
 		t.Fatalf("save state: %v", err)
 	}
-	conn := connectivity.New(st, mock, &mockTailscaleClient{})
+	ts := &mockTailscaleClient{}
+	conn := connectivity.New(st, mock, ts)
 	conn.Run = func(string, ...string) error { return nil }
+	prov := provision.New(st, mock, ts, "")
+	prov.Ansible = func(_ ansible.Params) error { return nil }
+	prov.Wait = func(_ context.Context, _ string, _ int) {}
 	return &appContext{
-		state: st,
-		azure: mock,
-		conn:  conn,
+		state:     st,
+		azure:     mock,
+		conn:      conn,
+		provision: prov,
 	}
 }
 

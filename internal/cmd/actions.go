@@ -3,16 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
-	"os"
 	"os/exec"
-	"strconv"
 	"time"
 
-	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
-	"github.com/mitchell-wallace/rover/internal/shellsafe"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/stateutil"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
@@ -47,14 +42,6 @@ func restoreConnectivity(ctx context.Context, a *appContext) error {
 		return fmt.Errorf("connectivity service not configured")
 	}
 	return a.conn.Restore(ctx)
-}
-
-func sanitizeAuthKey(key string) string {
-	clean, stripped := shellsafe.AuthKey(key)
-	if stripped {
-		ui.Warn("Auth key contained unexpected characters — they were stripped. Use only alphanumeric, '-', or '_'.")
-	}
-	return clean
 }
 
 func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error {
@@ -386,133 +373,11 @@ func doSSH(a *appContext, extra ...string) error {
 	return a.azure.SSH(extra...)
 }
 
-func waitForSSH(ctx context.Context, host string, port int) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	deadline := time.Now().Add(5 * time.Minute)
-	announced := false
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		dialer := net.Dialer{Timeout: 5 * time.Second}
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
-		if err == nil {
-			_ = conn.Close()
-			if announced {
-				ui.Info("SSH is up.")
-			}
-			return
-		}
-		if !announced {
-			ui.Info("Waiting for SSH on port %d (the VM may still be booting)...", port)
-			announced = true
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
-		}
-	}
-}
-
 func doProvision(a *appContext) error {
-	info, err := a.azure.Info()
-	if err != nil {
-		return err
+	if a == nil || a.provision == nil {
+		return fmt.Errorf("provision service not configured")
 	}
-	if !info.Exists {
-		return fmt.Errorf("no VM provisioned; run 'rover up' first")
-	}
-	if !info.Running() {
-		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
-	}
-
-	var authKey string
-	var usingOAuth bool
-	if key := os.Getenv("TS_AUTHKEY"); key != "" {
-		authKey = sanitizeAuthKey(key)
-		ui.Info("TS_AUTHKEY detected in environment — VM will join your tailnet as %q.", a.state.TSHostname())
-	} else if a.state.HasTSOAuth() {
-		ui.Info("Generating Tailscale auth key via OAuth client for hostname %q...", a.state.TSHostname())
-		key, err := a.conn.TS.GetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
-		if err != nil {
-			return fmt.Errorf("generate tailscale auth key: %w", err)
-		}
-		authKey = sanitizeAuthKey(key)
-		usingOAuth = true
-	} else {
-		ui.Info("Tailscale credentials not set (TS_AUTHKEY or OAuth client ID/secret) — skipping Tailscale.")
-	}
-
-	if authKey != "" {
-		if err := os.Setenv("TS_AUTHKEY", authKey); err != nil {
-			return fmt.Errorf("set TS_AUTHKEY: %w", err)
-		}
-		defer func() { _ = os.Unsetenv("TS_AUTHKEY") }()
-	}
-
-	host := info.Host()
-	tshost := a.state.TSHostname()
-	if peer, err := a.conn.TS.FindPeer(tshost); err == nil && peer.Online {
-		target := peer.Target()
-		ui.Info("Tailscale connection active. Provisioning over Tailscale (%s)...", target)
-		host = target
-	} else {
-		ui.Info("Provisioning %s (%s) over public IP with Ansible...", info.VMName, host)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	waitForSSH(ctx, host, a.state.SSHPort())
-
-	err = ansible.Provision(ansible.Params{
-		Host:       host,
-		User:       a.state.AdminUsername,
-		PrivateKey: a.state.PrivateKeyPath(),
-		AssetDir:   a.assetDir,
-		ExtraVars: map[string]string{
-			"ansible_port":       strconv.Itoa(a.state.SSHPort()),
-			"tailscale_hostname": a.state.TSHostname(),
-			"tailscale_tags":     a.state.TSTags(),
-		},
-	})
-	if err != nil {
-		return err
-	}
-	a.state.AnsibleApplied = true
-	if err := stateutil.SyncConnection(a.state, info); err != nil {
-		return err
-	}
-	ui.Info("Provisioning complete.")
-
-	if authKey != "" || usingOAuth {
-		ui.Info("Verifying Tailscale connection to VM...")
-		if peer, err := a.conn.TS.FindPeer(tshost); err == nil && peer.Online {
-			ui.Info("Tailscale connection verified.")
-			if a.state.PublicSSHClosed {
-				ui.Info("Public SSH already closed — VM reachable only over Tailscale.")
-			} else {
-				ui.Info("Locking down: closing public SSH (VM stays reachable over Tailscale)...")
-				if err := a.azure.SetPublicSSH(false); err != nil {
-					ui.Warn("Failed to close public SSH: %v — public SSH left OPEN on port %d.", err, a.state.SSHPort())
-				} else {
-					a.state.PublicSSHClosed = true
-					if err := a.state.Save(); err != nil {
-						ui.Warn("Failed to save state after closing public SSH: %v", err)
-					} else {
-						ui.Info("Public SSH closed. The VM is now reachable only over Tailscale ('rover connect').")
-					}
-				}
-			}
-		} else {
-			ui.Warn("Tailscale verification failed: peer offline or not found — keeping public SSH OPEN on port %d.", a.state.SSHPort())
-		}
-	}
-
-	ui.Info("Connect with 'rover ssh' (or 'rover connect' if Tailscale is active) and run 'dune'.")
-	return nil
+	return a.provision.Run(context.Background())
 }
 
 func doConnect(a *appContext, extra ...string) error {
