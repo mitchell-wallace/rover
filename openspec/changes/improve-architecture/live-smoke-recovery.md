@@ -617,3 +617,42 @@ service-principal or federated-token material, no selected subscription, and no
 authenticated local Tailscale state/auth material in this container runtime for
 the agent to inject. Task 9.6 remains unchecked per the "tick only if it passes"
 contract; no code or test assertions were changed.
+
+## RESOLVED — Live smoke passed (lap work-6afb, 2026-06-18 UTC)
+
+The runtime prerequisites that every prior lap was blocked on are now present in
+this container, so the optional 9.6 smoke executed end-to-end and **passed**.
+Task 9.6 is now ticked.
+
+Runtime state (verified before the run):
+
+- Azure CLI authenticated: `az account show` returns subscription
+  `Azure subscription 1` (`3202355a-d485-4072-99fe-36956d349691`), state
+  `Enabled`, user `movedbytheword@outlook.com`. Explicitly re-selected with
+  `az account set --subscription 3202355a-...`.
+- Tailscale authenticated locally: `tailscale status --json` ->
+  `BackendState: Running`, self `MINTAERO` (`100.121.215.18`), online.
+- `rover doctor`: all checks pass (az, login, Bicep, ssh, Ansible, Tailscale CLI,
+  SSH key).
+- Rover state targets `rover-rg` / `rover-vm`, `burstable xsmall`
+  (`Standard_B2als_v2`) in australiaeast -- the Basv2 family that is deployable on
+  this sub per the `azure-quota-gotcha` memory. VM pre-existed and was
+  `deallocated`.
+
+Smoke sequence (built `/tmp/rover` from `./cmd/rover`; each exited 0):
+
+- `rover up -y` -- started the deallocated VM, locked down public SSH, regenerated
+  a Tailscale auth key, re-authenticated the VM's tailscaled, peer came online.
+- `rover provision` -- Ansible `PLAY RECAP ... failed=0 unreachable=0`
+  (`ok=37 changed=4 skipped=12`); Tailscale verified; public SSH confirmed closed.
+- `rover connect -- 'echo connect-ok && hostname && whoami'` -- ran over Tailscale
+  SSH; returned `rover-vm` / `mitchell`.
+- `rover command 'echo command-ok && uname -a'` -- ran over Tailscale; returned the
+  VM `uname`.
+- `rover restart` -- restarted the running VM, re-locked public SSH, re-auth'd
+  Tailscale, peer back online; a follow-up `rover command` confirmed reachability.
+- `rover down -y` -- deallocated the VM (disk + static IP retained), returning the
+  VM to its original `deallocated` state. No resources were deleted.
+
+No code or test assertions were changed; only `tasks.md` (9.6 ticked) and this
+note were edited.
