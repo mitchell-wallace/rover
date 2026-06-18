@@ -60,3 +60,24 @@ runtime credentials:
 Rover state can remain absent if the next run intentionally uses defaults, but a
 state file or environment variables are needed if the smoke should target a
 specific subscription/resource group/region/VM name/Tailscale configuration.
+
+## Re-confirmation (lap work-f1e5, 2026-06-18 UTC)
+
+Re-ran the full 9.6 smoke probe in this container; runtime is unchanged from the
+original findings, so the smoke still cannot execute:
+
+- `az account show` → `Please run 'az login'`; `az login --identity` → MSI 403;
+  no `AZURE_*`/`ARM_*`/SDK auth-chain env; no `/etc/azure`, `/run/secrets`, or
+  token cache under `~/.azure`.
+- `tailscale status` → local tailscaled not running; no `TS_*`/`TAILSCALE_*`
+  env; no persisted state under `/var/lib/tailscale`, `~/.config/tailscale`,
+  `~/.local/share/tailscale`, or `/persist`.
+- `go build ./...` clean.
+- `rover up --no-provision -y` / `rover down -y` → `not logged in to Azure`.
+- `rover connect` → `rover: tailscale status: exit status 1` (local TS gate).
+
+Classification remains `needs_user`. Task 9.6 stays unchecked per the "only if it
+passes" contract. To unblock, a non-interactive Azure login (SP: tenant/client
+ID + secret, or federated token) with a selected subscription and a Tailscale
+auth source (`TS_AUTHKEY` or OAuth client + secret) must be injected into the
+container environment.
