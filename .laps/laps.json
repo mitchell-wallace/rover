@@ -211,6 +211,16 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-e733",
+      "title": "Inject real non-interactive Az...",
+      "description": "Inject real non-interactive Azure credentials and a selected subscription plus local Tailscale auth material into the container, run az login/az account set and tailscale up, then rerun rover up/provision/connect/command/restart/down and tick improve-architecture 9.6 only if it passes.",
+      "isDone": false,
+      "order": 524288,
+      "createdAt": "2026-06-18T05:46:22.292613937Z",
+      "updatedAt": "2026-06-18T05:46:22.292613937Z",
+      "completedAt": null
+    },
+    {
       "id": "work-d182",
       "title": "Unblock improve-architecture 9...",
       "description": "Unblock improve-architecture 9.6 by provisioning Azure CLI and Tailscale CLI/daemon in the container, injecting non-interactive Azure auth plus selected subscription and a Tailscale auth source, then rerun rover up/provision/connect/command/restart/down and tick 9.6 only if it passes.",
