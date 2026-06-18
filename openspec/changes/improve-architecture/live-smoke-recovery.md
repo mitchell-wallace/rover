@@ -249,3 +249,24 @@ Classification remains `needs_user`. The current container still lacks the
 operator-side Azure login and Tailscale auth/state required to start the 9.6
 live smoke, so task 9.6 remains unchecked. No code or test assertions were
 changed in this rerun.
+
+## Re-confirmation (lap work-0d22 rerun 2, 2026-06-18 UTC)
+
+This lap was reassigned yet again with the same instruction that operator-side
+Azure and Tailscale credentials had been injected. The runtime still does not
+show that injection:
+
+- The expected Azure and Tailscale credential names remain unset:
+  `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_SUBSCRIPTION_ID`, `ARM_*`, `AZURE_FEDERATED_TOKEN_FILE`,
+  `TS_AUTHKEY`, `TAILSCALE_AUTHKEY`, `TAILSCALE_CLIENT_ID`, and
+  `TAILSCALE_CLIENT_SECRET`.
+- `az account show --output json` still fails with `ERROR: Please run 'az login'
+  to setup account.`
+- `tailscale status --json` still fails with `failed to connect to local
+  tailscaled; it doesn't appear to be running`.
+
+Classification remains `needs_user`. The required operator-provided Azure login
+and Tailscale auth/state are still absent from this container runtime, so the
+9.6 live smoke cannot start and task 9.6 remains unchecked. No code or test
+assertions were changed in this rerun.
