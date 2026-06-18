@@ -127,11 +127,11 @@
       "title": "Extract internal/vm lifecycle service",
       "description": "Context\n§6.1–6.4, design D4, D13. Source: doUp L159, doDown L255, doRestart L317, doDisk L399, doStatus L451, doSSH L474, teardown cleanup (doTailscaleCleanup L359, printTailscaleCleanupResult L378, tailscaleLogoutScript L351), scrubKnownHosts L42, printInfo L737. vm composes connectivity + provision.\n\nOutcome\ninternal/vm with: service.go — Service{State, Azure AzureLifecycle, TS tailscale.Client, Conn connRestorer, Provision provisioner}; AzureLifecycle = Up/Down/Status/Restart/ResizeDisk/SSH/RunCommand (NOT Info); printInfo, scrubKnownHosts. lifecycle.go — Up/Down/Restart. disk.go — Disk/Status/SSH. cleanup.go — CleanupTailscaleDevices + logout script. loadContext composes vm.Service injecting a.conn and a.provision. actions.go lifecycle do* remain (duplicated) and compiling; cutover is the next lap.\n\nFiles \u0026 scope\nNew internal/vm/{service.go, lifecycle.go, disk.go, cleanup.go}; internal/cmd/root.go to compose vm. Do not delete actions.go do* yet.\n\nDesign\nD4: vm depends on its sub-services through consumer-side interfaces connRestorer{Ready() bool; Restore(ctx) error} and provisioner{Run(ctx) error}, satisfied by *connectivity.Service / *provision.Service — NOT the concrete types (so vm tests inject recording fakes). D13: teardown Tailscale cleanup lives in vm; CleanupTailscaleDevices(deleteOnline, dryRun) serves both Down(delete) and `rover tailscale cleanup`. Use stateutil.SyncConnection / ZeroConnection — do not duplicate mapping. vm must not be imported by connectivity/provision. Behavior frozen.\n\nAcceptance\ngo build ./... green; go vet ./internal/vm/... clean. Report completion; do NOT tick tasks.md. Tasks: §6.1–6.4.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 720896,
       "createdAt": "2026-06-17T00:52:37.691450375Z",
-      "updatedAt": "2026-06-17T00:52:37.691450375Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:13:48.605968884Z",
+      "completedAt": "2026-06-18T02:13:48.605968884Z"
     },
     {
       "id": "rove-6ef5",
