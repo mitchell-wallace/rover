@@ -50,11 +50,11 @@
       "title": "Cut cmd over to connectivity service and remove global seams",
       "description": "Context\n§3.7–3.8, design D5 migration step 3. High-risk: removes the global Tailscale/timing seams the still-present actions.go depends on. Order matters.\n\nOutcome\nappContext gains conn *connectivity.Service; loadContext constructs one tailscale.Client (NewClient) and builds connectivity.New(state, azureClient, tsClient). The legacy entry points in actions.go (tailscaleReady, restoreConnectivity, reauthenticateTailscale, doConnect, doCommand) become thin delegations to a.conn. Only AFTER no code references them, the global vars (tsFindPeer/tsGetAuthKey/tsConnect/tsPingPeer/runRemoteCommandFn) and timing vars (restoreConnectivityPollCount/Wait and connectReconnect*) are deleted.\n\nFiles \u0026 scope\ninternal/cmd/root.go (appContext + loadContext) and internal/cmd/actions.go (delegations + delete globals). Do not touch the Cobra command files yet.\n\nDesign\nD5. Sequence inside the lap: add conn → delegate the five entry points → confirm green → delete the globals/timing knobs → confirm green. The remaining actions.go connectivity tests run via the delegations until they are removed in the cmd-cutover lap.\n\nAcceptance\ngo test ./internal/connectivity/... and go test ./internal/cmd pass; grep shows no remaining references to the deleted global vars or timing knobs. Report completion; do NOT tick tasks.md. Tasks: §3.7–3.8.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 327680,
       "createdAt": "2026-06-17T00:52:37.691443703Z",
-      "updatedAt": "2026-06-17T00:52:37.691443703Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T01:22:44.88666038Z",
+      "completedAt": "2026-06-18T01:22:44.88666038Z"
     },
     {
       "id": "rove-ad0b",
