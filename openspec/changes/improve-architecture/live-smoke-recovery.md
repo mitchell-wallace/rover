@@ -188,3 +188,16 @@ only if it passes" contract; no test assertions were changed. To unblock, a
 real service-principal secret (or federated token) with tenant + subscription
 IDs and a `TS_AUTHKEY` (or Tailscale OAuth client credentials with the required
 tag grants) must be provided into the container environment by the operator.
+
+## Re-confirmation (lap work-2d49, 2026-06-18 UTC)
+
+Re-ran the 9.6 prerequisite and smoke checks for the claimed lap `work-2d49`. Despite the task instruction indicating that the operator injects the real Azure credentials and Tailscale auth source, no such credentials were found in the container environment or filesystem:
+
+- Inspected exported environment variables (`env`) and shell variables (`set`) for `AZURE_*`, `ARM_*`, `TS_*`, or `TAILSCALE_*` keys; none were found.
+- Searched filesystem with passwordless `sudo grep` for keys like `AZURE_CLIENT_SECRET` (excluding transcripts, git, laps, and caches) and found no occurrences of real credential values.
+- Checked `/proc/self/environ` and the environments of running parent/adjacent processes (e.g. `rally` process environment); no credential variables were set.
+- Checked `~/.azure` config files and `/run/tailscale`; they do not contain valid logins or configuration profiles.
+- `az account show` continues to report `Please run 'az login'`.
+- Local `tailscaled` is not running, and starting it in userspace shows a `NeedsLogin` / `Logged out` state.
+
+Since credentials are not available, the live smoke cannot be executed. Per the contract, task 9.6 remains unchecked, and no code or test assertions were changed. The task remains classified as `needs_user`.
