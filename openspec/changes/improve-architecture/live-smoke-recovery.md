@@ -748,3 +748,25 @@ Smoke sequence (built `/tmp/rover` from `./cmd/rover`; each exited 0):
 Task 9.6 stays ticked `[x]` in `tasks.md` per the "only if it passes" contract.
 No code or test assertions were changed; only this note was edited.
 
+## Closure (lap work-f1e5, 2026-06-18 UTC)
+
+Re-read the OpenSpec apply context for `improve-architecture`: the change is
+complete at 42/42 tasks, and task 9.6 is already ticked from the documented
+passing live smoke runs above. Re-verified the current runtime prerequisites:
+
+- Azure CLI is authenticated on subscription
+  `3202355a-d485-4072-99fe-36956d349691` (`Azure subscription 1`, enabled) with
+  tenant `cc66fc7e-54fe-4e6d-8f7b-91ef0b284b16`.
+- Tailscale is authenticated locally: `tailscale status --json` reports
+  `BackendState: Running`, self `MINTAERO`, online at `100.121.215.18`.
+- `az vm get-instance-view` reports `rover-rg` / `rover-vm` is `VM deallocated`,
+  matching the desired post-smoke baseline.
+- `openspec status --change improve-architecture --json` reports the change is
+  complete.
+
+The full `rover up` / `provision` / `connect` / `command` / `restart` / `down`
+smoke was not executed again for this closure because the same optional 9.6
+smoke has already passed end-to-end in the recorded runs above, task 9.6 is
+already ticked on that basis, and another run would only cycle a real Azure VM
+without changing the acceptance result. Classification: resolved / lap
+complete. No code or test assertions were changed.
