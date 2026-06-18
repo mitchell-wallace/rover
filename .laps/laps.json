@@ -274,11 +274,11 @@
       "id": "work-f1e5",
       "title": "Run improve-architecture 9.6 l...",
       "description": "Run improve-architecture 9.6 live smoke after providing non-interactive Azure credentials with a selected subscription and an authenticated local Tailscale session or TS_AUTHKEY/Tailscale OAuth credentials; then execute rover up/provision/connect/command/restart/down and tick task 9.6 only if it passes.",
-      "isDone": false,
+      "isDone": true,
       "order": 786432,
       "createdAt": "2026-06-18T04:58:06.436020711Z",
-      "updatedAt": "2026-06-18T04:58:06.436020711Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T12:40:14.079274644Z",
+      "completedAt": "2026-06-18T12:40:14.079274644Z"
     },
     {
       "id": "work-6de6",
