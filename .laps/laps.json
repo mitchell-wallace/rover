@@ -28,11 +28,11 @@
       "title": "Port connectivity logic into internal/connectivity",
       "description": "Context\nThe flagship deep module of improve-architecture (§3.1–3.3; design D3, D9, D10, D12). Behavior is FROZEN (design Guiding Principle 1). Source in actions.go: tailscaleReady L55, reauthenticateTailscale L67, restoreConnectivity L109, doConnect L665, connectWithReconnect L729, doCommand L798, runRemoteCommand L860.\n\nOutcome\ninternal/connectivity with: service.go — Service{State, Azure AzureControl, TS tailscale.Client, Run CommandRunner, Poll PollConfig, Reconnect ReconnectConfig}; AzureControl = Status/SetPublicSSH/RunCommand (NOT Info — only provision uses Info); CommandRunner func(name string, args ...string) error plus defaultCommandRunner porting runRemoteCommand verbatim (own internal 10-min timeout, inherited stdio, fmt.Errorf(\"%s: %w\", name, err) wrapping); PollConfig and DefaultPoll{Count:12, Wait:5*time.Second}; ReconnectConfig and default current values (MaxConsecutive:5, BaseWait:2*time.Second, MaxWait:30*time.Second, HealthyAfter:time.Minute); New() constructor; Ready(). repair.go — Reauthenticate(ctx) (returns bool) and Restore(ctx). route.go — Connect(ctx, extra...) including post-drop reconnect and RunCommand(ctx, args). actions.go is unchanged this lap and still compiles; callers cut over later.\n\nFiles \u0026 scope\nNew internal/connectivity/{service.go, repair.go, route.go}. Do not touch actions.go callers or delete globals yet — that is the connectivity-cutover lap.\n\nDesign\nD3/D9/D10/D12. Port verbatim: every ui string, the Tailscale-first → repair → public-SSH fallback ordering, poll count/wait, and reconnect policy. Reconnect must keep the landed behavior: clean `tailscale ssh` exit stops; error exit waits, revalidates peer + ping, repairs online-but-unpingable peers without opening public SSH, and caps rapid repeated failures. Use shellsafe for sanitization and emit the same ui.Warn at the call site. Keep each file within the D7 budget (service ≤250 lines; split before exceeding). connectivity imports tailscale for Peer/CleanupResult; it must NOT import cmd or vm.\n\nAcceptance\ngo build ./... green; go vet ./internal/connectivity/... clean. The package compiles with no callers yet. Report completion; do NOT tick tasks.md. Tasks: §3.1–3.3.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 196608,
       "createdAt": "2026-06-17T00:52:37.691442323Z",
-      "updatedAt": "2026-06-17T00:52:37.691442323Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T00:47:09.629513554Z",
+      "completedAt": "2026-06-18T00:47:09.629513554Z"
     },
     {
       "id": "rove-dc12",
