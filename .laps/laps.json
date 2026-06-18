@@ -244,11 +244,11 @@
       "id": "work-0a87",
       "title": "Operator injects real non-inte...",
       "description": "Operator injects real non-interactive Azure credentials (service-principal: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, plus a subscription id to az account set) and a Tailscale auth source (TS_AUTHKEY or OAuth client id/secret with required tag grants) into the container environment, then rerun rover up/provision/connect/command/restart/down and tick improve-architecture 9.6 only if it passes",
-      "isDone": false,
+      "isDone": true,
       "order": 393216,
       "createdAt": "2026-06-18T05:56:01.520484833Z",
-      "updatedAt": "2026-06-18T05:56:01.520484833Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T12:12:45.121059428Z",
+      "completedAt": "2026-06-18T12:12:45.121059428Z"
     },
     {
       "id": "work-d182",
