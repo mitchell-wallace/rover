@@ -211,6 +211,16 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-fbdd",
+      "title": "Inject a real non-interactive ...",
+      "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
+      "isDone": false,
+      "order": 65536,
+      "createdAt": "2026-06-18T07:23:01.236292787Z",
+      "updatedAt": "2026-06-18T07:23:01.236292787Z",
+      "completedAt": null
+    },
+    {
       "id": "work-07c6",
       "title": "Inject a real non-interactive ...",
       "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
