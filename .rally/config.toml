@@ -42,12 +42,12 @@ flash = 'gemini-3-flash-preview'
 
 [harness.op.models]
 zai  = 'zai-coding-plan/glm-5.2'
-# zgo = 'opencode-go/glm-5.1'
-# kimi = 'opencode-go/kimi-k2.7-code'
-# mini = 'opencode-go/minimax-m3'
-# ds = 'opencode-go/deepseek-v4-pro'
+zgo = 'XXopencode-go/glm-5.1'
+kimi = 'XXopencode-go/kimi-k2.7-code'
+mini = 'XXopencode-go/minimax-m3'
+ds = 'XXopencode-go/deepseek-v4-pro'
 dsf = 'opencode/deepseek-v4-flash-free'
-# qwen = 'opencode-go/qwen3.7-max'
+qwen = 'XXopencode-go/qwen3.7-max'
 
 # agy 1.0.0 has no model CLI flag, so rally
 # patches ~/.gemini/antigravity-cli/settings.json per-run.
