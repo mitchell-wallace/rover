@@ -105,11 +105,11 @@
       "title": "Provision tests and cmd cutover",
       "description": "Context\n§5.3–5.5, design D14. The provision env round-trip needs a test that would actually fail if Setenv were removed.\n\nOutcome\ninternal/provision/service_test.go with fakes for Azure/Tailscale/Ansible/Wait covering: VM-not-running rejection; auth-key resolution (env \u003e OAuth \u003e none); OAuth-failure path; provision-over-Tailscale vs public-IP selection; post-provision verify-and-lockdown (close public SSH only when the peer verifies). The fake Ansible records os.Getenv(\"TS_AUTHKEY\") AT CALL TIME; the test asserts it equals the sanitized key during the run and is unset after Run returns. appContext gains provision *provision.Service (built from the Azure client, the shared tailscale.Client, and assetDir); doProvision/waitForSSH are removed or become wrappers delegating to a.provision.Run(ctx).\n\nFiles \u0026 scope\ninternal/provision/service_test.go; internal/cmd/root.go (appContext/loadContext); internal/cmd/actions.go (remove/delegate doProvision, waitForSSH).\n\nDesign\nD14: a test that only asserts on ansible.Params stays green even if the env round-trip is dropped — the call-time Getenv assertion is the point of this lap. Assert exact ui strings for the lockdown/verify branches.\n\nAcceptance\ngo test ./internal/provision/... and go test ./internal/cmd pass; the env-round-trip assertion is present and meaningful. Report completion; do NOT tick tasks.md. Tasks: §5.3–5.5.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 589824,
       "createdAt": "2026-06-17T00:52:37.691446141Z",
-      "updatedAt": "2026-06-17T00:52:37.691446141Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:01:59.688786923Z",
+      "completedAt": "2026-06-18T02:01:59.688786923Z"
     },
     {
       "id": "rove-29e8",
