@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func init() {
 	var deleteAll bool
@@ -22,7 +26,7 @@ and removes persistent data. Requires confirmation or --yes.`,
 			if err != nil {
 				return err
 			}
-			return doDown(a, deleteAll, assumeYes)
+			return a.vm.Down(context.Background(), deleteAll, assumeYes)
 		},
 	}
 	cmd.Flags().BoolVar(&deleteAll, "delete", false, "delete all resources (destructive)")

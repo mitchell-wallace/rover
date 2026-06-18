@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func init() {
 	cmd := &cobra.Command{
@@ -15,7 +19,7 @@ The VM must already be running. Use 'rover up' to start a deallocated VM.`,
 			if err != nil {
 				return err
 			}
-			return doRestart(a)
+			return a.vm.Restart(context.Background())
 		},
 	}
 	rootCmd.AddCommand(cmd)

@@ -27,7 +27,7 @@ The VM is briefly deallocated during the resize and restarted if it was running.
 			if err != nil {
 				return err
 			}
-			return doDisk(a, gb, assumeYes)
+			return a.vm.Disk(gb, assumeYes)
 		},
 	}
 	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "skip confirmation prompts")

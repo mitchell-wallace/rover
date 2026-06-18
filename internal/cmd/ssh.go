@@ -11,7 +11,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			return doSSH(a, args...)
+			return a.vm.SSH(args...)
 		},
 	}
 	rootCmd.AddCommand(cmd)

@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func init() {
 	cmd := &cobra.Command{
@@ -17,7 +21,7 @@ propagated.`,
 			if err != nil {
 				return err
 			}
-			return doCommand(a, args)
+			return a.conn.RunCommand(context.Background(), args)
 		},
 	}
 	rootCmd.AddCommand(cmd)

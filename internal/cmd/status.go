@@ -12,7 +12,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			return doStatus(a)
+			return a.vm.Status()
 		},
 	}
 	rootCmd.AddCommand(cmd)

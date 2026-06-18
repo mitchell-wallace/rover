@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 
 	"github.com/mitchell-wallace/rover/internal/sizes"
@@ -40,7 +41,7 @@ func init() {
 			if size == "" {
 				size = "small"
 			}
-			return doUp(a, family, size, assumeYes, noProvision)
+			return a.vm.Up(context.Background(), family, size, assumeYes, noProvision)
 		},
 	}
 	cmd.Flags().StringVar(&familyFlag, "family", "", "compute family: "+strings.Join(sizes.Families, "|"))
