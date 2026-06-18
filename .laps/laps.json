@@ -149,11 +149,11 @@
       "title": "Cut cmd over to services and delete the God files",
       "description": "Context\n§6.6, §7, §8.1–8.2, design D5/D9. The cutover that retires the monolith. High-risk: deletes actions.go/actions_test.go/conv.go and rewires every command.\n\nOutcome\nappContext holds state, assetDir, vm, conn (and provision only if a wrapper still needs it); the azureProvider interface is removed; loadContext builds one azure.New, one tailscale.NewClient, then composes connectivity.New, provision.Service, and vm.Service with default providers. Every Cobra file (up/down/restart/disk/status/ssh/provision/command/connect/tailscale) delegates to a.vm.* / a.conn.* / a.provision.*, constructing a context.Context where the old do* did — no flag/arg/prompt/message change. interactive.go calls the same service methods (CLI/interactive parity). tailscale.go delegates to vm.CleanupTailscaleDevices after its existing prompts. actions.go, conv.go, and actions_test.go are deleted; dead test helpers (mockAzureClient, newTestAppContext, stubTSPing) are gone.\n\nFiles \u0026 scope\ninternal/cmd/{root.go, up.go, down.go, restart.go, disk.go, status.go, ssh.go, provision.go, command.go, connect.go, tailscale.go, interactive.go}; delete actions.go, conv.go, actions_test.go.\n\nDesign\nDelete actions_test.go only after confirming every test in it has an equivalent in a service package (it should, after the connectivity/provision/vm test laps). Keep prompts/default answers/messages byte-identical. go build ./... must pass with the God files gone.\n\nAcceptance\ngo build ./..., go vet ./..., and go test ./... green; grep -rn for actions.go / azureProvider / mockAzureClient under internal/cmd returns nothing. Report completion; do NOT tick tasks.md. Tasks: §6.6, §7.1–7.4, §8.1–8.2.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 851968,
       "createdAt": "2026-06-17T00:52:37.691451497Z",
-      "updatedAt": "2026-06-17T00:52:37.691451497Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:25:04.125681104Z",
+      "completedAt": "2026-06-18T02:25:04.125681104Z"
     },
     {
       "id": "rove-2a63",
