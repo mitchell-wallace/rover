@@ -94,11 +94,11 @@
       "title": "Extract internal/provision service",
       "description": "Context\n§5.1–5.2, design D14. Source: doProvision (actions.go L519) and waitForSSH (L488). Contains a load-bearing TS_AUTHKEY env round-trip that is easy to drop.\n\nOutcome\ninternal/provision with: service.go — Service{State, Azure AzureProvisioner, TS tailscale.Client, AssetDir, Ansible func(ansible.Params) error (default ansible.Provision), Wait SSHWaiter}; AzureProvisioner = Info/SetPublicSSH (NOT RunCommand — provisioning runs no Azure guest commands); Run(ctx) porting doProvision. wait.go — default SSH wait porting waitForSSH (TCP dial loop, 5-min deadline, the \"Waiting for SSH …\"/\"SSH is up.\" messages, silent return on cancel/timeout). actions.go still compiles; cutover is the next lap.\n\nFiles \u0026 scope\nNew internal/provision/{service.go, wait.go}. Do not wire appContext or remove doProvision yet.\n\nDesign\nD14: the resolved+sanitized auth key reaches Ansible via os.Setenv(\"TS_AUTHKEY\", key) with a deferred os.Unsetenv — NOT via ansible.Params. Preserve exactly. Preserve host selection (online Tailscale peer → Tailscale target, else public IP), the verify-and-lockdown ordering, and every ui string. SSHWaiter returns no value.\n\nAcceptance\ngo build ./... green; go vet ./internal/provision/... clean. Report completion; do NOT tick tasks.md. Tasks: §5.1–5.2.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 524288,
       "createdAt": "2026-06-17T00:52:37.691445553Z",
-      "updatedAt": "2026-06-17T00:52:37.691445553Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T01:49:32.967602499Z",
+      "completedAt": "2026-06-18T01:49:32.967602499Z"
     },
     {
       "id": "rove-52b5",
