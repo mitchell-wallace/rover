@@ -110,3 +110,39 @@ smoke did not pass. To unblock a future run, the container needs Azure CLI and
 Tailscale CLI/daemon available, a non-interactive Azure login plus subscription
 selection, and a Tailscale auth source (`TS_AUTHKEY` or OAuth client credentials
 with the required tag grants).
+
+## Re-run After CLI Install (lap work-f659, 2026-06-18 UTC)
+
+This run removed the missing-binary blocker but is still blocked on missing
+non-interactive credentials:
+
+- Installed Azure CLI from Debian apt (`az` 2.45.0).
+- Installed Tailscale via the official apt installer (`tailscale`/`tailscaled`
+  1.98.4).
+- No credential environment variable names were present for Azure or Tailscale:
+  no `AZURE_*`, `ARM_*`, `TS_*`, `TAILSCALE_*`, or `ROVER_*` keys.
+- Filename/key-name scans in `/workspace`, `/home/agent`, `/persist`, `/run`,
+  `/var/run`, and `/etc` did not find Azure or Tailscale auth material. The only
+  credential-looking persisted files found were unrelated agent/OAuth files.
+- `az account show --output json` failed with `Please run 'az login'`.
+- `az account list --output json` returned `[]` with the Azure CLI login
+  warning.
+- `az login --identity --output json` failed with MSI 403 Forbidden.
+- A temporary userspace `tailscaled` started successfully on the default socket,
+  but `tailscale status --json` reported `BackendState: NeedsLogin` and
+  `tailscale status` reported `Logged out.`
+- `go build ./...` passed.
+- `go test ./internal/connectivity/... ./internal/vm/... ./internal/provision/... ./internal/cmd`
+  passed.
+- `rover up --no-provision -y` failed at `not logged in to Azure`.
+- `rover provision` failed at `not logged in to Azure`.
+- `rover connect` failed at `local Tailscale is not connected; run 'tailscale up'`.
+- `rover command true` failed at `not logged in to Azure`.
+- `rover restart` failed at `not logged in to Azure`.
+- `rover down -y` failed at `not logged in to Azure`.
+
+Classification remains `needs_user`. Task 9.6 stays unchecked because the live
+smoke did not pass. To unblock, inject a usable non-interactive Azure login
+(service principal secret or federated token) and select a subscription with
+`az account set --subscription <id>`, then authenticate local Tailscale with
+`TS_AUTHKEY` or configured OAuth credentials with the required tag grants.
