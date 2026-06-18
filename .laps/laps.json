@@ -211,6 +211,26 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-f659",
+      "title": "Inject a non-interactive Azure...",
+      "description": "Inject a non-interactive Azure login (service principal: AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, or federated-workload AZURE_FEDERATED_TOKEN_FILE) plus an 'az account set --subscription \u003cid\u003e' selection, AND a Tailscale auth source (TS_AUTHKEY or Tailscale OAuth client id+secret with the required tag grants) into the container environment, then re-run improve-architecture 9.6 live smoke (rover up/provision/connect/command/restart/down) and tick 9.6 only if it passes.",
+      "isDone": false,
+      "order": 655360,
+      "createdAt": "2026-06-18T05:31:36.089236537Z",
+      "updatedAt": "2026-06-18T05:31:36.089236537Z",
+      "completedAt": null
+    },
+    {
+      "id": "work-555a",
+      "title": "Inject a non-interactive Azure...",
+      "description": "Inject a non-interactive Azure login (service principal: AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, or federated-workload AZURE_FEDERATED_TOKEN_FILE) plus an 'az account set --subscription \u003cid\u003e' selection, AND a Tailscale auth source (TS_AUTHKEY or Tailscale OAuth client id+secret with the required tag grants) into the container environment, then re-run improve-architecture 9.6 live smoke (rover up/provision/connect/command/restart/down) and tick 9.6 only if it passes.",
+      "isDone": false,
+      "order": 720896,
+      "createdAt": "2026-06-18T05:00:44.562814355Z",
+      "updatedAt": "2026-06-18T05:00:44.562814355Z",
+      "completedAt": null
+    },
+    {
       "id": "work-f1e5",
       "title": "Run improve-architecture 9.6 l...",
       "description": "Run improve-architecture 9.6 live smoke after providing non-interactive Azure credentials with a selected subscription and an authenticated local Tailscale session or TS_AUTHKEY/Tailscale OAuth credentials; then execute rover up/provision/connect/command/restart/down and tick task 9.6 only if it passes.",
