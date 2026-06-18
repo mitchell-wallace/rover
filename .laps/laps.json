@@ -211,6 +211,16 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-f1e5",
+      "title": "Run improve-architecture 9.6 l...",
+      "description": "Run improve-architecture 9.6 live smoke after providing non-interactive Azure credentials with a selected subscription and an authenticated local Tailscale session or TS_AUTHKEY/Tailscale OAuth credentials; then execute rover up/provision/connect/command/restart/down and tick task 9.6 only if it passes.",
+      "isDone": false,
+      "order": 786432,
+      "createdAt": "2026-06-18T04:58:06.436020711Z",
+      "updatedAt": "2026-06-18T04:58:06.436020711Z",
+      "completedAt": null
+    },
+    {
       "id": "work-6de6",
       "title": "Recover Azure/Tailscale runtime for Rover live smoke",
       "description": "Reconcile the execution environment so improve-architecture §9.6 can actually run. As of 2026-06-18 UTC in this container: 'az account show' prints 'Please run az login', 'az login --identity' fails with MSI 403 Forbidden, ~/.config/rover/state.json is still absent (Rover falls back to defaults only), 'tailscale status' reports that local tailscaled is not running, and 'go run ./cmd/rover up --no-provision -y' fails at the Azure login boundary while 'go run ./cmd/rover connect' fails at the local Tailscale boundary. If usable non-interactive Azure credentials and a runnable/authenticated local Tailscale session can be recovered within lap authority, complete the full §9.6 live smoke (up/provision/connect/command/restart/down) and record results; otherwise classify the blocker as needs_user with the exact missing credential/runtime prerequisite.",
