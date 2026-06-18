@@ -83,11 +83,11 @@
       "title": "Extract internal/stateutil shared state helpers",
       "description": "Context\n§4, design D15. Connection-state mapping lives in internal/cmd/conv.go (configConnFrom, stateZeroConn) and as the appContext.syncConnection method (actions.go L34). Both vm and provision will need it, and service packages cannot import cmd.\n\nOutcome\ninternal/stateutil with ConnectionFromAzure(info azure.Info) config.Connection, ZeroConnection() config.Connection, and SyncConnection(st *config.State, info azure.Info) error. Remaining legacy call sites in actions.go use stateutil.SyncConnection / stateutil.ZeroConnection; conv.go is deleted.\n\nFiles \u0026 scope\nNew internal/stateutil/{stateutil.go, stateutil_test.go}; edit actions.go call sites; delete internal/cmd/conv.go. stateutil imports only azure and config.\n\nDesign\nMove behavior verbatim — including the VM-size preservation in syncConnection (it re-asserts info.VMSize when non-empty; ConnectionFromAzure already sets it, so the result is unchanged — preserve it). Tests: port TestSyncConnection_SavesState plus direct coverage for VM-size preservation and zero-connection reset.\n\nAcceptance\ngo test ./internal/stateutil/... and go test ./internal/cmd pass; conv.go gone. Report completion; do NOT tick tasks.md. Tasks: §4.1–4.3.",
       "assignee": "JUNIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 458752,
       "createdAt": "2026-06-17T00:52:37.691444983Z",
-      "updatedAt": "2026-06-17T00:52:37.691444983Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T01:45:44.915846698Z",
+      "completedAt": "2026-06-18T01:45:44.915846698Z"
     },
     {
       "id": "rove-101b",
