@@ -234,11 +234,11 @@
       "id": "work-0d22",
       "title": "Operator explicitly injects re...",
       "description": "Operator explicitly injects real Azure and Tailscale credentials into the container environment before re-assigning the smoke test",
-      "isDone": false,
+      "isDone": true,
       "order": 327680,
       "createdAt": "2026-06-18T05:57:02.109974544Z",
-      "updatedAt": "2026-06-18T05:57:02.109974544Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T12:04:49.833652528Z",
+      "completedAt": "2026-06-18T12:04:49.833652528Z"
     },
     {
       "id": "work-0a87",
