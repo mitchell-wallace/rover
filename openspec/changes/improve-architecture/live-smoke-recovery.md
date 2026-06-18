@@ -146,3 +146,45 @@ smoke did not pass. To unblock, inject a usable non-interactive Azure login
 (service principal secret or federated token) and select a subscription with
 `az account set --subscription <id>`, then authenticate local Tailscale with
 `TS_AUTHKEY` or configured OAuth credentials with the required tag grants.
+
+## Re-confirmation (lap work-e733, 2026-06-18 UTC)
+
+Re-ran the 9.6 prerequisite and smoke checks. The runtime now has the binaries
+installed, but no credentials were ever injected, so the smoke still cannot
+execute. This is the same blocker, re-confirmed with the full search surface
+below.
+
+- `az` 2.45.0, `tailscale`/`tailscaled` 1.98.4 are present on `PATH`
+  (the prior "command not found" blocker is resolved).
+- No credential environment variable names present: no `AZURE_*`, `ARM_*`,
+  `TS_*`, `TAILSCALE_*`, or `ROVER_*` keys in the exported environment, the
+  non-exported shell variables, or `/proc/self/environ`.
+- Content + filename scans (run with passwordless `sudo` across the whole
+  filesystem) for `tskey-`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`,
+  `AZURE_SUBSCRIPTION_ID`, and `ARM_CLIENT_ID` found matches ONLY in rally
+  try-logs, codex/gemini session transcripts, opencode logs, `.rally/state/*`,
+  `.laps/laps.json` (all of which quote this task text), and unrelated nvidia
+  plugin skill docs. No real Azure SP or Tailscale auth material exists
+  anywhere, including `~/.azure` (config/log only), `/var/lib/tailscale` (empty
+  `tailscaled.log*` only), `/run/tailscale`, `/persist/agent`, `/root`,
+  `/run/secrets`, `/etc/azure`, and `/tmp/rover-tailscaled.state` (2 bytes).
+- `az account show` -> `Please run 'az login'`; `az login --identity` not
+  retried (prior MSI 403 documented above).
+- `tailscale status` -> local `tailscaled` not running; no persisted state.
+- `go build ./...` passed.
+- `rover up --no-provision -y` -> `not logged in to Azure`.
+- `rover provision` -> `not logged in to Azure`.
+- `rover connect` -> `tailscale status: exit status 1` (local TS gate).
+- `rover command true` -> `not logged in to Azure`.
+- `rover restart` -> `not logged in to Azure`.
+- `rover down -y` -> `not logged in to Azure`.
+
+Classification remains `needs_user`. The task's "inject real non-interactive
+Azure credentials and Tailscale auth material into the container" step cannot
+be performed by the agent itself — those credentials are not present anywhere
+in the container to inject, and they cannot be fabricated (real Azure SP / a
+real tailnet authkey are required). Task 9.6 stays unchecked per the "tick 9.6
+only if it passes" contract; no test assertions were changed. To unblock, a
+real service-principal secret (or federated token) with tenant + subscription
+IDs and a `TS_AUTHKEY` (or Tailscale OAuth client credentials with the required
+tag grants) must be provided into the container environment by the operator.
