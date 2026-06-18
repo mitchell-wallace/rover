@@ -1,0 +1,1 @@
+{"run_id":"relay-1-run-1","summary":"Extracted pure internal/shellsafe sanitizers (AuthKey returns stripped bool, ShellArg); actions.go delegates and emits the existing ui.Warn verbatim; tests moved to shellsafe_test.go; build+vet+tests green.","updated_at":"2026-06-18T00:39:02Z","laps_completed":["rove-da34"]}
