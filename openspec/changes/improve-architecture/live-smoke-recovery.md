@@ -656,3 +656,36 @@ Smoke sequence (built `/tmp/rover` from `./cmd/rover`; each exited 0):
 
 No code or test assertions were changed; only `tasks.md` (9.6 ticked) and this
 note were edited.
+
+## Re-confirmation (lap work-0d22, relay-2 run-3, 2026-06-18 UTC)
+
+This lap (`work-0d22`: operator injects real Azure/Tailscale credentials before
+reassigning the smoke) was re-claimed in relay-2 run-3. The operator-side
+credential injection described by the task is now verifiably present in the
+current container runtime, and the 9.6 smoke it gates has already passed:
+
+- Azure CLI is authenticated non-interactively: `az account show` returns
+  subscription `3202355a-d485-4072-99fe-36956d349691` (`Azure subscription 1`,
+  `Enabled`), tenant `cc66fc7e-54fe-4e6d-8f7b-91ef0b284b16`, user
+  `movedbytheword@outlook.com`. No `AZURE_*`/`ARM_*`/`TS_*` env names are needed
+  because the login is materialised in the Azure CLI token cache.
+- Tailscale is authenticated locally: `tailscale status --json` ->
+  `BackendState: Running`, `HaveNodeKey: true`, self `MINTAERO`
+  (`100.121.215.18`), online.
+- The optional 9.6 live smoke already executed end-to-end and **passed** in the
+  preceding laps (see "RESOLVED — Live smoke passed (lap work-6afb)" above, and
+  relay-2 runs 1 & 2): all six paths (`up`/`provision`/`connect`/`command`/
+  `restart`/`down`) exited 0, provision `failed=0`, and the VM was returned to
+  `deallocated`.
+- Task 9.6 is ticked `[x]` in `tasks.md` (commit `3dd112f`), and the working
+  tree is clean.
+
+The live smoke was **not** re-executed in this run. Per the "tick 9.6 only if it
+passes" contract it is already ticked on the strength of the documented passing
+run; re-running would only needlessly cycle a real Azure VM (start → provision →
+deallocate) at real cost with no assertion change. The lap's stated objective —
+operator credential injection plus smoke re-assignment — is satisfied:
+credentials are injected and the smoke has been reassigned and has passed.
+
+Classification: resolved / lap complete. No code or test assertions were changed;
+only this note was edited.
