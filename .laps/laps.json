@@ -211,6 +211,16 @@
       "completedAt": "2026-06-18T04:40:54.8692421Z"
     },
     {
+      "id": "work-1229",
+      "title": "Inject real non-interactive Az...",
+      "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
+      "isDone": false,
+      "order": -131072,
+      "createdAt": "2026-06-18T07:50:23.657371046Z",
+      "updatedAt": "2026-06-18T07:50:23.657371046Z",
+      "completedAt": null
+    },
+    {
       "id": "work-d277",
       "title": "Inject real non-interactive Az...",
       "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
