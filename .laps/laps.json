@@ -138,11 +138,11 @@
       "title": "Migrate vm tests onto recording fakes",
       "description": "Context\n§6.5, design Test Migration Map. vm lifecycle tests assert connectivity behavior; they must inject recording fakes rather than build real sub-services (D4).\n\nOutcome\ninternal/vm/{lifecycle_test.go, disk_test.go, cleanup_test.go} (each ≤400 lines) with fakeAzure (recording AzureLifecycle) and recording connRestorer/provisioner. Move TestDoDown_*, TestDoDisk_*, and the Azure-only TestDoRestart_NoVM/_VMNotRunning/_RestartsAndSyncsConnection. For TestDoRestart_RestoresConnectivityWhenPublicSSHClosed, the vm test asserts the recording connRestorer.Restore was invoked (the `tailscale up` script assertion already moved to connectivity/repair_test.go in the connectivity-tests lap). Add Up coverage: fresh create with Tailscale-not-ready + declined confirm aborts; fresh create auto-provisions unless --no-provision; starting an existing VM invokes Conn.Restore. Add cleanup coverage: no-OAuth error, dry-run printing, delete-online propagation. Move TestInfoRunning to internal/azure/azure_test.go (it tests azure.Info.Running()).\n\nFiles \u0026 scope\nNew internal/vm/*_test.go and internal/azure/azure_test.go. Do NOT move TestRestoreConnectivity_FullDownUpCycle/_ContextCancelled here — they are connectivity tests.\n\nDesign\nRecording fakes; assert composition (\"Restore was invoked\", \"Provision.Run was invoked\"), not nested real services.\n\nAcceptance\ngo test ./internal/vm/... and go test ./internal/azure/... pass. Report completion; do NOT tick tasks.md. Tasks: §6.5.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 786432,
       "createdAt": "2026-06-17T00:52:37.691450939Z",
-      "updatedAt": "2026-06-17T00:52:37.691450939Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:20:41.8153406Z",
+      "completedAt": "2026-06-18T02:20:41.8153406Z"
     },
     {
       "id": "rove-2086",
