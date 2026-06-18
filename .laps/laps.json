@@ -221,56 +221,6 @@
       "completedAt": null
     },
     {
-      "id": "work-26a1",
-      "title": "Inject real non-interactive Az...",
-      "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
-      "isDone": false,
-      "order": -327680,
-      "createdAt": "2026-06-18T08:03:33.24775494Z",
-      "updatedAt": "2026-06-18T08:03:33.24775494Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-00a8",
-      "title": "Inject real non-interactive Az...",
-      "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
-      "isDone": false,
-      "order": -262144,
-      "createdAt": "2026-06-18T07:58:56.644232599Z",
-      "updatedAt": "2026-06-18T07:58:56.644232599Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-da35",
-      "title": "Inject real non-interactive Az...",
-      "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
-      "isDone": false,
-      "order": -196608,
-      "createdAt": "2026-06-18T07:53:49.702212305Z",
-      "updatedAt": "2026-06-18T07:53:49.702212305Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-1229",
-      "title": "Inject real non-interactive Az...",
-      "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
-      "isDone": false,
-      "order": -131072,
-      "createdAt": "2026-06-18T07:50:23.657371046Z",
-      "updatedAt": "2026-06-18T07:50:23.657371046Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-d277",
-      "title": "Inject real non-interactive Az...",
-      "description": "Inject real non-interactive Azure service-principal or federated-token credentials into the container, select the intended subscription, and provide authenticated local Tailscale state or TS_AUTHKEY/TS_OAUTH auth material; then rerun improve-architecture task 9.6 and tick it only if rover up/provision/connect/command/restart/down pass.",
-      "isDone": false,
-      "order": -65536,
-      "createdAt": "2026-06-18T07:31:11.530808723Z",
-      "updatedAt": "2026-06-18T07:31:11.530808723Z",
-      "completedAt": null
-    },
-    {
       "id": "work-dce5",
       "title": "Inject a real non-interactive ...",
       "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
@@ -278,46 +228,6 @@
       "order": 0,
       "createdAt": "2026-06-18T07:25:58.196120172Z",
       "updatedAt": "2026-06-18T07:25:58.196120172Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-fbdd",
-      "title": "Inject a real non-interactive ...",
-      "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
-      "isDone": false,
-      "order": 65536,
-      "createdAt": "2026-06-18T07:23:01.236292787Z",
-      "updatedAt": "2026-06-18T07:23:01.236292787Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-07c6",
-      "title": "Inject a real non-interactive ...",
-      "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
-      "isDone": false,
-      "order": 131072,
-      "createdAt": "2026-06-18T07:20:42.036415731Z",
-      "updatedAt": "2026-06-18T07:20:42.036415731Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-0c54",
-      "title": "Inject a real non-interactive ...",
-      "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
-      "isDone": false,
-      "order": 196608,
-      "createdAt": "2026-06-18T07:18:07.246996745Z",
-      "updatedAt": "2026-06-18T07:18:07.246996745Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-db04",
-      "title": "Inject a real non-interactive ...",
-      "description": "Inject a real non-interactive Azure login into the container runtime (service principal or federated token, plus subscription selection) and authenticated local Tailscale state or auth material, then rerun improve-architecture task 9.6 (`rover up`, `rover provision`, `rover connect`, `rover command`, `rover restart`, `rover down`) and tick 9.6 only if it passes.",
-      "isDone": false,
-      "order": 262144,
-      "createdAt": "2026-06-18T07:15:11.962246884Z",
-      "updatedAt": "2026-06-18T07:15:11.962246884Z",
       "completedAt": null
     },
     {
@@ -341,26 +251,6 @@
       "completedAt": null
     },
     {
-      "id": "work-2d49",
-      "title": "Operator injects real non-inte...",
-      "description": "Operator injects real non-interactive Azure credentials (service-principal: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, plus a subscription id to az account set) and a Tailscale auth source (TS_AUTHKEY or OAuth client id/secret with required tag grants) into the container environment, then rerun rover up/provision/connect/command/restart/down and tick improve-architecture 9.6 only if it passes",
-      "isDone": false,
-      "order": 458752,
-      "createdAt": "2026-06-18T05:52:22.30702617Z",
-      "updatedAt": "2026-06-18T05:52:22.30702617Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-e733",
-      "title": "Inject real non-interactive Az...",
-      "description": "Inject real non-interactive Azure credentials and a selected subscription plus local Tailscale auth material into the container, run az login/az account set and tailscale up, then rerun rover up/provision/connect/command/restart/down and tick improve-architecture 9.6 only if it passes.",
-      "isDone": false,
-      "order": 524288,
-      "createdAt": "2026-06-18T05:46:22.292613937Z",
-      "updatedAt": "2026-06-18T05:46:22.292613937Z",
-      "completedAt": null
-    },
-    {
       "id": "work-d182",
       "title": "Unblock improve-architecture 9...",
       "description": "Unblock improve-architecture 9.6 by provisioning Azure CLI and Tailscale CLI/daemon in the container, injecting non-interactive Azure auth plus selected subscription and a Tailscale auth source, then rerun rover up/provision/connect/command/restart/down and tick 9.6 only if it passes.",
@@ -378,16 +268,6 @@
       "order": 655360,
       "createdAt": "2026-06-18T05:31:36.089236537Z",
       "updatedAt": "2026-06-18T05:31:36.089236537Z",
-      "completedAt": null
-    },
-    {
-      "id": "work-555a",
-      "title": "Inject a non-interactive Azure...",
-      "description": "Inject a non-interactive Azure login (service principal: AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, or federated-workload AZURE_FEDERATED_TOKEN_FILE) plus an 'az account set --subscription \u003cid\u003e' selection, AND a Tailscale auth source (TS_AUTHKEY or Tailscale OAuth client id+secret with the required tag grants) into the container environment, then re-run improve-architecture 9.6 live smoke (rover up/provision/connect/command/restart/down) and tick 9.6 only if it passes.",
-      "isDone": false,
-      "order": 720896,
-      "createdAt": "2026-06-18T05:00:44.562814355Z",
-      "updatedAt": "2026-06-18T05:00:44.562814355Z",
       "completedAt": null
     },
     {
