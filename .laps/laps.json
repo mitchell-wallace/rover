@@ -72,11 +72,11 @@
       "title": "Finish phase-3 connectivity test/doc migration",
       "description": "Remove the duplicated connectivity tests and the copied real-backend notes from internal/cmd/actions_test.go now that they live under internal/connectivity, leaving phase-3 coverage anchored in ready_test.go, repair_test.go, route_test.go, and testdata/REALBACKEND.md so tasks 3.5 and 3.6 can be verified cleanly.",
       "assignee": "SENIOR",
-      "isDone": false,
+      "isDone": true,
       "order": 327680,
       "createdAt": "2026-06-18T01:29:52.715027602Z",
-      "updatedAt": "2026-06-18T01:29:52.715027602Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T01:41:37.752564811Z",
+      "completedAt": "2026-06-18T01:41:37.752564811Z"
     },
     {
       "id": "rove-af4c",
