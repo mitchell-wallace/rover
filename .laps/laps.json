@@ -264,11 +264,11 @@
       "id": "work-f659",
       "title": "Inject a non-interactive Azure...",
       "description": "Inject a non-interactive Azure login (service principal: AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, or federated-workload AZURE_FEDERATED_TOKEN_FILE) plus an 'az account set --subscription \u003cid\u003e' selection, AND a Tailscale auth source (TS_AUTHKEY or Tailscale OAuth client id+secret with the required tag grants) into the container environment, then re-run improve-architecture 9.6 live smoke (rover up/provision/connect/command/restart/down) and tick 9.6 only if it passes.",
-      "isDone": false,
+      "isDone": true,
       "order": 655360,
       "createdAt": "2026-06-18T05:31:36.089236537Z",
-      "updatedAt": "2026-06-18T05:31:36.089236537Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T12:37:05.078970471Z",
+      "completedAt": "2026-06-18T12:37:05.078970471Z"
     },
     {
       "id": "work-f1e5",
