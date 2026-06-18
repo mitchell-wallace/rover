@@ -87,9 +87,9 @@ junior = ['op:zai', 'ge:pro', 'ag:flash', 'ag:pro', 'op:kimi', 'op:zgo', 'cx:g54
 ui = ['ag:flash', 'ge:pro', 'ag:pro', 'op:kimi', 'cc:sonnet', 'ag:sonnet']
 
 # Verification / review tasks. Codex first, claude as backup.
-verify = ['cx:g54', 'op:ds', 'cc:opus', 'ag:opus']
+verify = ['cx:g54', 'cx:g55', 'cc:opus', 'ag:opus', 'op:ds']
 
-
+recovery = ['cx:g54', 'cx:g55', 'cc:opus', 'ag:opus', 'op:ds']
 
 
 # Custom role example
