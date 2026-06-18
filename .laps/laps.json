@@ -193,10 +193,21 @@
       "title": "Optional live Azure smoke for improve-architecture",
       "description": "Run the §9.6 live smoke in an environment with Azure tooling and quota: verify rover up/provision/connect/command/restart/down match pre-refactor behavior, then tick tasks.md 9.6 if it passes. Blocked here because az CLI is not installed in this workspace.",
       "assignee": "VERIFY",
-      "isDone": false,
+      "isDone": true,
       "order": 983040,
       "createdAt": "2026-06-18T02:44:13.391700084Z",
-      "updatedAt": "2026-06-18T02:44:13.391700084Z",
+      "updatedAt": "2026-06-18T02:53:22.073628269Z",
+      "completedAt": "2026-06-18T02:53:22.073628269Z"
+    },
+    {
+      "id": "work-a11a",
+      "title": "Re-run improve-architecture live smoke in Azure-capable env",
+      "description": "Attempt §9.6 again in an environment with a non-interactive Azure login or other usable Azure credentials, Rover config/state, and a runnable Tailscale session. This workspace now has az, bicep, ssh, ansible, and tailscale installed plus an SSH key, but the smoke is still blocked because 'az account show' requires login, 'az login --identity' fails (MSI 403), there is no Rover state/config, and local tailscaled is not running under this container.",
+      "assignee": "VERIFY",
+      "isDone": false,
+      "order": 917504,
+      "createdAt": "2026-06-18T02:53:16.348708707Z",
+      "updatedAt": "2026-06-18T02:53:16.348708707Z",
       "completedAt": null
     }
   ]
