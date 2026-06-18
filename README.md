@@ -384,6 +384,89 @@ rover update
 
 Check the Rover GitHub repository for a newer version. Prints the current and latest versions. If a newer release exists, prompts for Y/n confirmation before downloading and installing it via the official install script. Use `rover update --yes` to install non-interactively.
 
+## Architecture
+
+Rover is layered as **thin command adapters** over a small set of **service
+packages**, each a deep module with a narrow `Service` surface. A reader
+entering at a Cobra file reaches a bounded unit of behavior in at most two
+hops: Cobra file → `Service` method → helper. This section is the navigation
+guide; the full decision rationale lives in
+[`openspec/changes/improve-architecture/design.md`](openspec/changes/improve-architecture/design.md).
+
+```
+cmd/rover                 ← `main` entrypoint
+internal/
+  cmd/          ← thin Cobra adapters; appContext (root.go) is the composition root
+  vm/           ← single-VM lifecycle: up/down/restart/disk/status + teardown cleanup
+  provision/    ← Ansible provisioning: auth-key resolution, host select, verify + lockdown
+  connectivity/ ← Tailscale verify/repair/route + public-SSH fallback (deepest module)
+  stateutil/    ← shared Azure → config.Connection mapping (used by vm + provision)
+  shellsafe/    ← pure AuthKey/ShellArg sanitizers (no ui import)
+  azure/        ← script-backed az/Bicep leaf; *Client satisfies per-package interfaces
+  tailscale/    ← CLI + control-plane API + the provider-side Client interface
+  ansible/ config/ sizes/ ui/   ← unchanged leaves
+```
+
+**Dependency direction (acyclic — verified against shipped imports):**
+
+```
+cmd ──▶ vm · provision · connectivity        (loadContext wires the concrete services)
+vm           ──▶ azure, tailscale, sizes, stateutil, config, ui
+provision    ──▶ ansible, azure, tailscale, shellsafe, stateutil, config, ui
+connectivity ──▶ azure, tailscale, shellsafe, config, ui
+stateutil    ──▶ azure, config
+shellsafe    ──▶ (pure)
+```
+
+No service package imports `cmd`; `connectivity` and `provision` do not import
+`vm`. `vm` consumes connectivity/provision **behavior** through narrow
+consumer-side interfaces (`connRestorer`, `provisioner`) rather than importing
+those packages — so its tests inject recording fakes instead of building real
+sub-services.
+
+**Provider seams — inject, don't patch.** Every cross-package dependency is a
+constructor-injected interface; there are no global function vars or
+package-level timing knobs.
+
+- `tailscale.Client` (`internal/tailscale/client.go`) — the one **provider-side**
+  interface, shared by `connectivity`, `provision`, and `vm`. It lives in
+  package `tailscale` (not a consumer) so the `Peer`/`CleanupResult` types do
+  not form an import cycle. `NewClient()` returns the default `CLI` adapter;
+  tests inject fakes.
+- **Per-package Azure interfaces** (consumer-side, each satisfied by
+  `*azure.Client` via structural typing, declaring only what that package uses):
+  `connectivity.AzureControl` (`Status`/`SetPublicSSH`/`RunCommand`),
+  `provision.AzureProvisioner` (`Info`/`SetPublicSSH`),
+  `vm.AzureLifecycle` (`Up`/`Down`/`Status`/`Restart`/`ResizeDisk`/`SSH`/`RunCommand`).
+- **Func seams:** `connectivity.CommandRunner` (replaces the former
+  `runRemoteCommandFn` global) and `provision.SSHWaiter` decouple remote exec
+  and the SSH-wait loop. `connectivity.PollConfig` / `ReconnectConfig` carry the
+  repair/reconnect timing that used to live in package-level vars.
+
+**Composition root.** `loadContext` (`internal/cmd/root.go`) builds one
+`azure.Client` and one `tailscale.Client`, then composes `connectivity.New`,
+`provision.New`, and `vm.Service`, wiring the concrete services together.
+Interactive (`rover`) and non-interactive (subcommand) modes call the same
+service methods, so they stay at parity.
+
+**Where does X live?**
+
+| Looking for… | Go to |
+| --- | --- |
+| A command's flow | `internal/cmd/<cmd>.go` → the `a.vm.*` / `a.conn.*` / `a.provision.*` call |
+| Tailscale ready / reauth / repair / connect / command routing | `internal/connectivity` (`repair.go`, `route.go`) |
+| VM up/down/restart/disk/status, device cleanup | `internal/vm` (`lifecycle.go`, `disk.go`, `cleanup.go`) |
+| Ansible run, auth-key + host selection, lockdown | `internal/provision` (`service.go`, `wait.go`) |
+| Persisted connection-state mapping | `internal/stateutil` |
+| Auth-key / shell-arg sanitization | `internal/shellsafe` |
+
+**File-size budget (soft, review-enforced).** Source files ≤ 300 lines
+(target ~200), `_test.go` files ≤ 400, a `Service` primary file ~250 — split by
+sub-behavior before exceeding. A file may exceed the budget only with a
+top-of-file justification. Pre-existing `internal/config/config.go`,
+`internal/tailscale/tailscale.go`, and `internal/azure/azure.go` predate the
+budget and are not retrofitted.
+
 ## Development
 
 ```sh
