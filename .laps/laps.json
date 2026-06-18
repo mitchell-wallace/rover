@@ -116,11 +116,11 @@
       "title": "Verify stateutil and provision extraction",
       "description": "Use the openspec-verify-change skill against improve-architecture, scoped to phases 4–5.\n\nConfirm: stateutil is the single home for connection mapping (conv.go gone; vm and provision will both use it) and depends only on azure + config; provision preserves the TS_AUTHKEY env round-trip (D14) AND has a test that would fail if Setenv were removed — verify by reading the test, not just the green result; host selection and the verify-and-lockdown ordering and strings match the pre-refactor doProvision.\n\nTick the §4 and §5 tasks.md boxes you verify as correctly and thoroughly done. Add a head lap for any substantive gap.",
       "assignee": "VERIFY",
-      "isDone": false,
+      "isDone": true,
       "order": 655360,
       "createdAt": "2026-06-17T00:52:37.691449703Z",
-      "updatedAt": "2026-06-17T00:52:37.691449703Z",
-      "completedAt": null
+      "updatedAt": "2026-06-18T02:07:59.618184793Z",
+      "completedAt": "2026-06-18T02:07:59.618184793Z"
     },
     {
       "id": "rove-9ba8",

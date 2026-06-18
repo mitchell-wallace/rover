@@ -213,16 +213,18 @@ func TestRunOAuthFailureDoesNotProvision(t *testing.T) {
 
 func TestRunHostSelection(t *testing.T) {
 	tests := []struct {
-		name   string
-		info   azure.Info
-		result peerResult
-		want   string
+		name         string
+		info         azure.Info
+		result       peerResult
+		wantHost     string
+		wantInfoLine string
 	}{
 		{
-			name:   "online tailscale peer",
-			info:   runningInfo(),
-			result: peerResult{peer: onlinePeer()},
-			want:   "rover-vm.tailnet.test",
+			name:         "online tailscale peer",
+			info:         runningInfo(),
+			result:       peerResult{peer: onlinePeer()},
+			wantHost:     "rover-vm.tailnet.test",
+			wantInfoLine: "==> Tailscale connection active. Provisioning over Tailscale (rover-vm.tailnet.test)...",
 		},
 		{
 			name: "public ip when no tailscale peer",
@@ -231,8 +233,9 @@ func TestRunHostSelection(t *testing.T) {
 				info.FQDN = ""
 				return info
 			}(),
-			result: peerResult{err: &tailscale.PeerNotFoundError{Host: "rover-vm"}},
-			want:   "203.0.113.10",
+			result:       peerResult{err: &tailscale.PeerNotFoundError{Host: "rover-vm"}},
+			wantHost:     "203.0.113.10",
+			wantInfoLine: "==> Provisioning rover-vm (203.0.113.10) over public IP with Ansible...",
 		},
 	}
 
@@ -244,14 +247,18 @@ func TestRunHostSelection(t *testing.T) {
 			s.State.TailscaleClientID = ""
 			s.State.TailscaleClientSecret = ""
 
-			requireNoErr(t, s.Run(context.Background()))
+			output, err := captureStderr(t, func() error {
+				return s.Run(context.Background())
+			})
+			requireNoErr(t, err)
 
-			if len(waiter.hosts) != 1 || waiter.hosts[0] != tt.want {
-				t.Fatalf("Wait hosts = %+v, want %q", waiter.hosts, tt.want)
+			if len(waiter.hosts) != 1 || waiter.hosts[0] != tt.wantHost {
+				t.Fatalf("Wait hosts = %+v, want %q", waiter.hosts, tt.wantHost)
 			}
-			if len(runner.params) != 1 || runner.params[0].Host != tt.want {
-				t.Fatalf("Ansible host = %+v, want %q", runner.params, tt.want)
+			if len(runner.params) != 1 || runner.params[0].Host != tt.wantHost {
+				t.Fatalf("Ansible host = %+v, want %q", runner.params, tt.wantHost)
 			}
+			requireLine(t, outputLines(output), tt.wantInfoLine)
 		})
 	}
 }
@@ -324,10 +331,7 @@ func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
 			if s.State.PublicSSHClosed != tt.wantPublicClosed {
 				t.Fatalf("PublicSSHClosed = %v, want %v", s.State.PublicSSHClosed, tt.wantPublicClosed)
 			}
-			lines := outputLines(output)
-			for _, line := range tt.wantExactLines {
-				requireLine(t, lines, line)
-			}
+			requireLinesInOrder(t, outputLines(output), tt.wantExactLines)
 		})
 	}
 }
@@ -472,6 +476,24 @@ func requireLine(t *testing.T, lines []string, want string) {
 		}
 	}
 	t.Fatalf("missing exact output line %q in:\n%s", want, strings.Join(lines, "\n"))
+}
+
+func requireLinesInOrder(t *testing.T, lines, want []string) {
+	t.Helper()
+	start := 0
+	for _, line := range want {
+		found := false
+		for i := start; i < len(lines); i++ {
+			if lines[i] == line {
+				start = i + 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing ordered output line %q in:\n%s", line, strings.Join(lines, "\n"))
+		}
+	}
 }
 
 func sameBools(a, b []bool) bool {
