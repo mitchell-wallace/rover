@@ -41,7 +41,7 @@ type ReconnectConfig struct {
 	HealthyAfter   time.Duration
 }
 
-// DefaultReconnect matches the legacy connectReconnect policy.
+// DefaultReconnect matches the legacy reconnect policy.
 var DefaultReconnect = ReconnectConfig{
 	MaxConsecutive: 5,
 	BaseWait:       2 * time.Second,

@@ -2,13 +2,11 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
@@ -18,22 +16,6 @@ import (
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/mitchell-wallace/rover/internal/ui"
-)
-
-var (
-	tsFindPeer   = tailscale.FindPeer
-	tsGetAuthKey = tailscale.GetAuthKey
-	tsConnect    = tailscale.Connect
-	tsPingPeer   = tailscale.PingPeer
-
-	restoreConnectivityPollCount   = 12
-	restoreConnectivityPollWait    = 5 * time.Second
-	connectReconnectMaxConsecutive = 5
-	connectReconnectBaseWait       = 2 * time.Second
-	connectReconnectMaxWait        = 30 * time.Second
-	connectReconnectHealthyAfter   = 1 * time.Minute
-
-	runRemoteCommandFn func(name string, args ...string) error
 )
 
 func (a *appContext) syncConnection(info azure.Info) error {
@@ -53,80 +35,25 @@ func scrubKnownHosts(host string, port int) {
 	}
 }
 
-func tailscaleReady(st *config.State) bool {
-	if os.Getenv("TS_AUTHKEY") == "" && !st.HasTSOAuth() {
+func tailscaleReady(a *appContext) bool {
+	if a == nil || a.conn == nil {
 		return false
 	}
-	_, err := tsFindPeer(st.TSHostname())
-	if err == nil {
-		return true
-	}
-	var notFound *tailscale.PeerNotFoundError
-	return errors.As(err, &notFound)
+	return a.conn.Ready()
 }
 
 func reauthenticateTailscale(ctx context.Context, a *appContext) bool {
-	var authKey string
-	if key := os.Getenv("TS_AUTHKEY"); key != "" {
-		authKey = sanitizeAuthKey(key)
-	} else if a.state.HasTSOAuth() {
-		ui.Info("Generating Tailscale auth key...")
-		key, err := tsGetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
-		if err != nil {
-			ui.Warn("Failed to generate Tailscale auth key: %v", err)
-		} else {
-			authKey = sanitizeAuthKey(key)
-		}
+	if a == nil || a.conn == nil {
+		return false
 	}
-
-	if authKey != "" {
-		ui.Info("Re-authenticating Tailscale inside the VM...")
-		script := buildReauthScript(authKey, a.state.TSHostname(), a.state.TSTags())
-		if err := a.azure.RunCommand(script); err != nil {
-			reportRunCommandFailure(err)
-		}
-
-		ui.Info("Waiting for Tailscale peer to come online...")
-		tshost := a.state.TSHostname()
-		for i := 0; i < restoreConnectivityPollCount; i++ {
-			select {
-			case <-ctx.Done():
-				ui.Warn("Cancelled while waiting for Tailscale peer.")
-				return false
-			default:
-			}
-			time.Sleep(restoreConnectivityPollWait)
-			if peer, err := tsFindPeer(tshost); err == nil && tsPingPeer(peer) {
-				ui.Info("Tailscale re-authenticated — VM reachable via 'rover connect'.")
-				return true
-			}
-		}
-		ui.Warn("Tailscale peer did not become reachable after %s.", connectivityWaitBudget())
-	}
-
-	return false
+	return a.conn.Reauthenticate(ctx)
 }
 
 func restoreConnectivity(ctx context.Context, a *appContext) error {
-	if !a.state.PublicSSHClosed {
-		return nil
+	if a == nil || a.conn == nil {
+		return fmt.Errorf("connectivity service not configured")
 	}
-
-	ui.Info("Public SSH is locked down — restoring Tailscale connectivity...")
-	if reauthenticateTailscale(ctx, a) {
-		return nil
-	}
-
-	ui.Warn("Opening public SSH as fallback (Tailscale not available).")
-	if err := a.azure.SetPublicSSH(true); err != nil {
-		return fmt.Errorf("failed to open public SSH: %w", err)
-	}
-	a.state.PublicSSHClosed = false
-	if err := a.state.Save(); err != nil {
-		return fmt.Errorf("save state after opening public SSH: %w", err)
-	}
-	ui.Info("Public SSH opened on port %d. Run 'rover provision' to re-establish Tailscale.", a.state.SSHPort())
-	return nil
+	return a.conn.Restore(ctx)
 }
 
 func sanitizeAuthKey(key string) string {
@@ -135,53 +62,6 @@ func sanitizeAuthKey(key string) string {
 		ui.Warn("Auth key contained unexpected characters — they were stripped. Use only alphanumeric, '-', or '_'.")
 	}
 	return clean
-}
-
-// buildReauthScript returns the Run Command script used to repair Tailscale
-// inside the VM. The daemon is restarted first so a wedged tailscaled (alive on
-// its socket but not establishing a data plane) reloads its existing node
-// credentials instead of minting a duplicate node. Every invocation is bounded
-// by timeout(1) so a stuck daemon cannot pin the Run Command extension for
-// Azure's ~90 minute script ceiling, and the final `tailscale up` does not
-// swallow its exit code so real failures propagate to the caller.
-func buildReauthScript(authKey, hostname, tags string) string {
-	return fmt.Sprintf(`if ! command -v tailscale >/dev/null 2>&1; then
-  echo 'tailscale CLI not installed on VM' >&2
-  exit 127
-fi
-sudo timeout 60s systemctl restart tailscaled 2>&1 || true
-sleep 3
-sudo timeout 120s tailscale up --authkey='%s' --ssh --hostname='%s' --advertise-tags='%s'`,
-		authKey, shellsafe.ShellArg(hostname), shellsafe.ShellArg(tags))
-}
-
-// reportRunCommandFailure surfaces a RunCommand error to the user. When the
-// azure boundary classified it (conflict/transient/guest-failure), the captured
-// guest output is printed so the user sees the real cause (invalid auth key,
-// unauthorized tag, tailscaled down) instead of a bare exit code.
-func reportRunCommandFailure(err error) {
-	var rcErr *azure.RunCommandError
-	if !errors.As(err, &rcErr) {
-		ui.Warn("Tailscale re-auth via Azure Run Command failed: %v", err)
-		return
-	}
-	attempt := "attempt"
-	if rcErr.Attempts != 1 {
-		attempt = "attempts"
-	}
-	ui.Warn("Tailscale re-auth via Azure Run Command failed (%s after %d %s).", rcErr.Kind, rcErr.Attempts, attempt)
-	for _, line := range strings.Split(strings.TrimSpace(rcErr.Output), "\n") {
-		if line != "" {
-			fmt.Println("  " + line)
-		}
-	}
-}
-
-// connectivityWaitBudget is the total poll duration used in the
-// "did not become reachable after ..." warning, derived from the poll knobs so
-// the message stays accurate if the knobs change.
-func connectivityWaitBudget() time.Duration {
-	return (time.Duration(restoreConnectivityPollCount) * restoreConnectivityPollWait).Round(time.Second)
 }
 
 func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error {
@@ -206,7 +86,7 @@ func doUp(a *appContext, family, size string, assumeYes, noProvision bool) error
 	}
 
 	willProvision := fresh && !noProvision
-	if willProvision && !tailscaleReady(a.state) {
+	if willProvision && !a.conn.Ready() {
 		ui.Warn("Tailscale isn't configured/connected locally, so the new VM won't join your")
 		ui.Warn("tailnet and public SSH can't be auto-closed — it will stay open on port %d.", a.state.SSHPort())
 		ok, cerr := ui.Confirm(
@@ -388,7 +268,7 @@ func doTailscaleCleanup(a *appContext, deleteOnline, dryRun bool) (tailscale.Cle
 	if !a.state.HasTSOAuth() {
 		return tailscale.CleanupResult{}, fmt.Errorf("tailscale OAuth credentials not configured; set them with 'rover config --edit'")
 	}
-	res, err := tailscale.CleanupDevices(
+	res, err := a.conn.TS.CleanupDevices(
 		a.state.TSClientID(),
 		a.state.TSClientSecret(),
 		a.state.TSTagSlice(),
@@ -563,7 +443,7 @@ func doProvision(a *appContext) error {
 		ui.Info("TS_AUTHKEY detected in environment — VM will join your tailnet as %q.", a.state.TSHostname())
 	} else if a.state.HasTSOAuth() {
 		ui.Info("Generating Tailscale auth key via OAuth client for hostname %q...", a.state.TSHostname())
-		key, err := tsGetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
+		key, err := a.conn.TS.GetAuthKey(a.state.TSClientID(), a.state.TSClientSecret(), a.state.TSTagSlice())
 		if err != nil {
 			return fmt.Errorf("generate tailscale auth key: %w", err)
 		}
@@ -582,7 +462,7 @@ func doProvision(a *appContext) error {
 
 	host := info.Host()
 	tshost := a.state.TSHostname()
-	if peer, err := tsFindPeer(tshost); err == nil && peer.Online {
+	if peer, err := a.conn.TS.FindPeer(tshost); err == nil && peer.Online {
 		target := peer.Target()
 		ui.Info("Tailscale connection active. Provisioning over Tailscale (%s)...", target)
 		host = target
@@ -616,7 +496,7 @@ func doProvision(a *appContext) error {
 
 	if authKey != "" || usingOAuth {
 		ui.Info("Verifying Tailscale connection to VM...")
-		if peer, err := tsFindPeer(tshost); err == nil && peer.Online {
+		if peer, err := a.conn.TS.FindPeer(tshost); err == nil && peer.Online {
 			ui.Info("Tailscale connection verified.")
 			if a.state.PublicSSHClosed {
 				ui.Info("Public SSH already closed — VM reachable only over Tailscale.")
@@ -643,211 +523,20 @@ func doProvision(a *appContext) error {
 }
 
 func doConnect(a *appContext, extra ...string) error {
-	host := a.state.TSHostname()
-	peer, err := tsFindPeer(host)
-	if err != nil {
-		var notFound *tailscale.PeerNotFoundError
-		switch {
-		case errors.Is(err, tailscale.ErrNotInstalled):
-			return err
-		case errors.Is(err, tailscale.ErrNotRunning):
-			return err
-		case errors.As(err, &notFound):
-			ui.Warn("%v.", err)
-			ui.Info("If the VM is up, provision it with Tailscale: TS_AUTHKEY=<key> rover provision")
-			ui.Info("Otherwise start it with 'rover up'. Plain SSH still works via 'rover ssh'.")
-			return fmt.Errorf("%q not reachable over Tailscale", host)
-		default:
-			return err
-		}
+	if a == nil || a.conn == nil {
+		return fmt.Errorf("connectivity service not configured")
 	}
-	if !peer.Online {
-		ui.Warn("%q is in your tailnet but offline (likely deallocated).", host)
-		ui.Info("Start it with 'rover up'.")
-		return fmt.Errorf("%q is offline", host)
+	if a.conn.Restart == nil {
+		a.conn.Restart = func() error { return doRestart(a) }
 	}
-	if !tsPingPeer(peer) {
-		ui.Warn("%q is online in Tailscale but not reachable on the data plane.", host)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		if reauthenticateTailscale(ctx, a) {
-			repairedPeer, err := tsFindPeer(host)
-			if err == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
-				target := repairedPeer.Target()
-				ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-				return connectWithReconnect(a, target, extra...)
-			}
-		}
-		// Re-auth did not restore the data plane. A VM reboot restarts
-		// tailscaled and clears a wedged node, so offer that in-process before
-		// giving up — this is the documented escape hatch for this exact
-		// failure mode.
-		if ok, cerr := ui.Confirm(
-			"Restart the VM to repair Tailscale?",
-			"A reboot restarts the Tailscale daemon inside the VM, which usually restores the data plane. rover reconnects automatically afterward.",
-			false,
-		); cerr == nil && ok {
-			if rerr := doRestart(a); rerr == nil {
-				if repairedPeer, ferr := tsFindPeer(host); ferr == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
-					target := repairedPeer.Target()
-					ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-					return connectWithReconnect(a, target, extra...)
-				}
-			} else {
-				ui.Warn("Restart attempt failed: %v", rerr)
-			}
-		}
-		ui.Info("Run 'rover restart' to repair Tailscale or temporarily open public SSH.")
-		return fmt.Errorf("%q is not reachable over Tailscale", host)
-	}
-
-	target := peer.Target()
-	ui.Info("Connecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-	return connectWithReconnect(a, target, extra...)
-}
-
-func connectWithReconnect(a *appContext, target string, extra ...string) error {
-	consecutiveFailures := 0
-	for {
-		started := time.Now()
-		err := tsConnect(a.state.AdminUsername, target, extra...)
-		if err == nil {
-			return nil
-		}
-		if time.Since(started) >= connectReconnectHealthyAfter {
-			consecutiveFailures = 0
-		}
-		consecutiveFailures++
-		if consecutiveFailures > connectReconnectMaxConsecutive {
-			return fmt.Errorf("tailscale ssh disconnected after %d reconnect attempts: %w", connectReconnectMaxConsecutive, err)
-		}
-
-		delay := connectReconnectDelay(consecutiveFailures)
-		ui.Warn("Tailscale SSH disconnected: %v", err)
-		ui.Info("Reconnecting over Tailscale in %s (Ctrl-C to stop)...", delay)
-		time.Sleep(delay)
-
-		peer, perr := reconnectableTailscalePeer(a)
-		if perr != nil {
-			return fmt.Errorf("tailscale ssh disconnected and reconnect check failed: %w", perr)
-		}
-		target = peer.Target()
-		ui.Info("Reconnecting over Tailscale to %s@%s...", a.state.AdminUsername, target)
-	}
-}
-
-func connectReconnectDelay(attempt int) time.Duration {
-	if attempt < 1 {
-		attempt = 1
-	}
-	delay := connectReconnectBaseWait
-	for i := 1; i < attempt; i++ {
-		delay *= 2
-		if delay >= connectReconnectMaxWait {
-			return connectReconnectMaxWait
-		}
-	}
-	return delay
-}
-
-func reconnectableTailscalePeer(a *appContext) (*tailscale.Peer, error) {
-	host := a.state.TSHostname()
-	peer, err := tsFindPeer(host)
-	if err != nil {
-		return nil, err
-	}
-	if !peer.Online {
-		return nil, fmt.Errorf("%q is offline", host)
-	}
-	if tsPingPeer(peer) {
-		return peer, nil
-	}
-
-	ui.Warn("%q is online in Tailscale but not reachable on the data plane.", host)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	if reauthenticateTailscale(ctx, a) {
-		repairedPeer, err := tsFindPeer(host)
-		if err == nil && repairedPeer.Online && tsPingPeer(repairedPeer) {
-			return repairedPeer, nil
-		}
-	}
-	return nil, fmt.Errorf("%q is not reachable over Tailscale", host)
+	return a.conn.Connect(context.Background(), extra...)
 }
 
 func doCommand(a *appContext, args []string) error {
-	info, err := a.azure.Status()
-	if err != nil {
-		return err
+	if a == nil || a.conn == nil {
+		return fmt.Errorf("connectivity service not configured")
 	}
-	if !info.Exists {
-		return fmt.Errorf("no VM provisioned; run 'rover up' first")
-	}
-	if !info.Running() {
-		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
-	}
-
-	cmdStr := strings.Join(args, " ")
-	runFn := runRemoteCommand
-	if runRemoteCommandFn != nil {
-		runFn = runRemoteCommandFn
-	}
-
-	if peer, perr := tsFindPeer(a.state.TSHostname()); perr == nil && peer != nil {
-		if tsPingPeer(peer) {
-			target := peer.Target()
-			ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
-			return runFn("tailscale",
-				"ssh", a.state.AdminUsername+"@"+target, "--", cmdStr)
-		}
-		if peer.Online {
-			ui.Warn("Tailscale peer is online but unreachable.")
-			if a.state.PublicSSHClosed {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				if err := restoreConnectivity(ctx, a); err != nil {
-					return err
-				}
-				if repairedPeer, err := tsFindPeer(a.state.TSHostname()); err == nil && tsPingPeer(repairedPeer) {
-					target := repairedPeer.Target()
-					ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
-					return runFn("tailscale",
-						"ssh", a.state.AdminUsername+"@"+target, "--", cmdStr)
-				}
-			}
-			ui.Warn("Falling back to public SSH.")
-		}
-	}
-
-	host := info.Host()
-	if host == "" {
-		return fmt.Errorf("no connection target; run 'rover up' first")
-	}
-	ui.Info("Running over SSH (%s): %s", host, cmdStr)
-
-	sshArgs := []string{
-		"-p", strconv.Itoa(a.state.SSHPort()),
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "BatchMode=yes",
-	}
-	if pk := a.state.PrivateKeyPath(); pk != "" {
-		sshArgs = append(sshArgs, "-i", pk)
-	}
-	sshArgs = append(sshArgs, a.state.AdminUsername+"@"+host, "--", cmdStr)
-	return runFn("ssh", sshArgs...)
-}
-
-func runRemoteCommand(name string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	return nil
+	return a.conn.RunCommand(context.Background(), args)
 }
 
 func printInfo(info azure.Info) {

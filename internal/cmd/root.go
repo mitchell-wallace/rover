@@ -9,6 +9,8 @@ import (
 
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
+	"github.com/mitchell-wallace/rover/internal/connectivity"
+	"github.com/mitchell-wallace/rover/internal/tailscale"
 	"github.com/spf13/cobra"
 
 	assets "github.com/mitchell-wallace/rover"
@@ -60,6 +62,7 @@ type azureProvider interface {
 type appContext struct {
 	state    *config.State
 	azure    azureProvider
+	conn     *connectivity.Service
 	assetDir string
 }
 
@@ -79,9 +82,13 @@ func loadContext() (*appContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("materialize assets: %w", err)
 	}
+	az := azure.New(st, dir)
+	tsClient := tailscale.NewClient()
+	conn := connectivity.New(st, az, tsClient)
 	return &appContext{
 		state:    st,
-		azure:    azure.New(st, dir),
+		azure:    az,
+		conn:     conn,
 		assetDir: dir,
 	}, nil
 }

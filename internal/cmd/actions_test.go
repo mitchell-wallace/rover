@@ -10,6 +10,7 @@ import (
 
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
+	"github.com/mitchell-wallace/rover/internal/connectivity"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
 )
 
@@ -137,6 +138,49 @@ func (m *mockAzureClient) RunCommand(script string) error {
 	return nil
 }
 
+type mockTailscaleClient struct {
+	findPeerFn       func(string) (*tailscale.Peer, error)
+	pingPeerFn       func(*tailscale.Peer) bool
+	getAuthKeyFn     func(string, string, []string) (string, error)
+	connectFn        func(string, string, ...string) error
+	cleanupDevicesFn func(string, string, []string, string, bool, bool) (tailscale.CleanupResult, error)
+}
+
+func (m *mockTailscaleClient) FindPeer(host string) (*tailscale.Peer, error) {
+	if m.findPeerFn != nil {
+		return m.findPeerFn(host)
+	}
+	return nil, &tailscale.PeerNotFoundError{Host: host}
+}
+
+func (m *mockTailscaleClient) PingPeer(p *tailscale.Peer) bool {
+	if m.pingPeerFn != nil {
+		return m.pingPeerFn(p)
+	}
+	return false
+}
+
+func (m *mockTailscaleClient) GetAuthKey(clientID, secret string, tags []string) (string, error) {
+	if m.getAuthKeyFn != nil {
+		return m.getAuthKeyFn(clientID, secret, tags)
+	}
+	return "", nil
+}
+
+func (m *mockTailscaleClient) Connect(user, host string, extra ...string) error {
+	if m.connectFn != nil {
+		return m.connectFn(user, host, extra...)
+	}
+	return nil
+}
+
+func (m *mockTailscaleClient) CleanupDevices(clientID, secret string, tags []string, hostname string, deleteOnline, dryRun bool) (tailscale.CleanupResult, error) {
+	if m.cleanupDevicesFn != nil {
+		return m.cleanupDevicesFn(clientID, secret, tags, hostname, deleteOnline, dryRun)
+	}
+	return tailscale.CleanupResult{}, nil
+}
+
 // newTestAppContext creates an appContext with a temp config dir and mock Azure client.
 func newTestAppContext(t *testing.T, mock *mockAzureClient) *appContext {
 	t.Helper()
@@ -148,17 +192,40 @@ func newTestAppContext(t *testing.T, mock *mockAzureClient) *appContext {
 	if err := st.Save(); err != nil {
 		t.Fatalf("save state: %v", err)
 	}
+	conn := connectivity.New(st, mock, &mockTailscaleClient{})
+	conn.Run = func(string, ...string) error { return nil }
 	return &appContext{
 		state: st,
 		azure: mock,
+		conn:  conn,
 	}
 }
 
-func stubTSPing(t *testing.T, reachable bool) {
+func mockTS(t *testing.T, a *appContext) *mockTailscaleClient {
 	t.Helper()
-	orig := tsPingPeer
-	tsPingPeer = func(*tailscale.Peer) bool { return reachable }
-	t.Cleanup(func() { tsPingPeer = orig })
+	ts, ok := a.conn.TS.(*mockTailscaleClient)
+	if !ok {
+		t.Fatalf("unexpected tailscale client %T", a.conn.TS)
+	}
+	return ts
+}
+
+func stubTSPing(t *testing.T, a *appContext, reachable bool) {
+	t.Helper()
+	mockTS(t, a).pingPeerFn = func(*tailscale.Peer) bool { return reachable }
+}
+
+func setFastPoll(a *appContext, count int) {
+	a.conn.Poll = connectivity.PollConfig{Count: count, Wait: time.Millisecond}
+}
+
+func setFastReconnect(a *appContext, maxConsecutive int) {
+	a.conn.Reconnect = connectivity.ReconnectConfig{
+		MaxConsecutive: maxConsecutive,
+		BaseWait:       time.Millisecond,
+		MaxWait:        time.Millisecond,
+		HealthyAfter:   time.Hour,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -181,22 +248,27 @@ func TestRestoreConnectivity_PublicSSHOpen_NoAction(t *testing.T) {
 }
 
 func TestRestoreConnectivity_TailscaleReauthSuccess(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-	stubTSPing(t, true)
+	var runCommandScript string
+	mock := &mockAzureClient{
+		runCommandFn: func(script string) error {
+			runCommandScript = script
+			return nil
+		},
+		setPublicSSHFn: func(_ bool) error {
+			t.Fatal("SetPublicSSH should not be called when Tailscale re-auth succeeds")
+			return nil
+		},
+	}
 
+	a := newTestAppContext(t, mock)
+	a.state.PublicSSHClosed = true
+	stubTSPing(t, a, true)
+	setFastPoll(a, 5)
+	ts := mockTS(t, a)
 	// Simulate: first FindPeer call returns offline, second returns online.
 	// Matches real behavior: tailscale up takes a few seconds to register.
 	callCount := 0
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		callCount++
 		if callCount >= 2 {
 			// Real response shape captured 2026-06-10:
@@ -215,28 +287,9 @@ func TestRestoreConnectivity_TailscaleReauthSuccess(t *testing.T) {
 			Online:   false,
 		}, nil
 	}
-
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
 		return "tskey-auth-fake-key", nil
 	}
-
-	restoreConnectivityPollCount = 5
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
-	var runCommandScript string
-	mock := &mockAzureClient{
-		runCommandFn: func(script string) error {
-			runCommandScript = script
-			return nil
-		},
-		setPublicSSHFn: func(_ bool) error {
-			t.Fatal("SetPublicSSH should not be called when Tailscale re-auth succeeds")
-			return nil
-		},
-	}
-
-	a := newTestAppContext(t, mock)
-	a.state.PublicSSHClosed = true
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
@@ -258,32 +311,6 @@ func TestRestoreConnectivity_TailscaleReauthSuccess(t *testing.T) {
 }
 
 func TestRestoreConnectivity_TailscaleNeverComesOnline_OpensPublicSSH(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	// Simulate Tailscale peer that never comes online (e.g. tailscaled broken).
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{
-			HostName: "rover-vm",
-			Online:   false,
-		}, nil
-	}
-
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-fake-key", nil
-	}
-
-	restoreConnectivityPollCount = 2
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	setSSHCalled := false
 	mock := &mockAzureClient{
 		runCommandFn: func(_ string) error {
@@ -300,6 +327,18 @@ func TestRestoreConnectivity_TailscaleNeverComesOnline_OpensPublicSSH(t *testing
 
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	setFastPoll(a, 2)
+	ts := mockTS(t, a)
+	// Simulate Tailscale peer that never comes online (e.g. tailscaled broken).
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName: "rover-vm",
+			Online:   false,
+		}, nil
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-fake-key", nil
+	}
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
@@ -314,32 +353,6 @@ func TestRestoreConnectivity_TailscaleNeverComesOnline_OpensPublicSSH(t *testing
 }
 
 func TestRestoreConnectivity_TailscaleOnlineButUnreachable_OpensPublicSSH(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-	stubTSPing(t, false)
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{
-			HostName:     "rover-vm",
-			DNSName:      "rover-vm.tail94a70e.ts.net.",
-			Online:       true,
-			TailscaleIPs: []string{"100.88.25.46"},
-		}, nil
-	}
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-fake-key", nil
-	}
-	restoreConnectivityPollCount = 2
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	setSSHCalled := false
 	mock := &mockAzureClient{
 		runCommandFn: func(_ string) error { return nil },
@@ -353,6 +366,20 @@ func TestRestoreConnectivity_TailscaleOnlineButUnreachable_OpensPublicSSH(t *tes
 	}
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	stubTSPing(t, a, false)
+	setFastPoll(a, 2)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-fake-key", nil
+	}
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
@@ -366,16 +393,6 @@ func TestRestoreConnectivity_TailscaleOnlineButUnreachable_OpensPublicSSH(t *tes
 }
 
 func TestRestoreConnectivity_NoTailscaleCreds_OpensPublicSSH(t *testing.T) {
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	restoreConnectivityPollCount = 0
-	restoreConnectivityPollWait = 0
-
 	setSSHCalled := false
 	mock := &mockAzureClient{
 		setPublicSSHFn: func(_ bool) error {
@@ -388,6 +405,7 @@ func TestRestoreConnectivity_NoTailscaleCreds_OpensPublicSSH(t *testing.T) {
 	a.state.PublicSSHClosed = true
 	a.state.TailscaleClientID = ""
 	a.state.TailscaleClientSecret = ""
+	setFastPoll(a, 0)
 	t.Setenv("TS_AUTHKEY", "")
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
@@ -403,28 +421,6 @@ func TestRestoreConnectivity_NoTailscaleCreds_OpensPublicSSH(t *testing.T) {
 }
 
 func TestRestoreConnectivity_AuthKeyGenerationFails_OpensPublicSSH(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	tsFindPeer = func(host string) (*tailscale.Peer, error) {
-		return nil, &tailscale.PeerNotFoundError{Host: host}
-	}
-
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "", errors.New("oauth failed: invalid client")
-	}
-
-	restoreConnectivityPollCount = 1
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	setSSHCalled := false
 	mock := &mockAzureClient{
 		setPublicSSHFn: func(_ bool) error {
@@ -435,6 +431,14 @@ func TestRestoreConnectivity_AuthKeyGenerationFails_OpensPublicSSH(t *testing.T)
 
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	setFastPoll(a, 1)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(host string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: host}
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "", errors.New("oauth failed: invalid client")
+	}
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
@@ -446,16 +450,6 @@ func TestRestoreConnectivity_AuthKeyGenerationFails_OpensPublicSSH(t *testing.T)
 }
 
 func TestRestoreConnectivity_SetPublicSSHError_ReturnsError(t *testing.T) {
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	restoreConnectivityPollCount = 0
-	restoreConnectivityPollWait = 0
-
 	mock := &mockAzureClient{
 		setPublicSSHFn: func(_ bool) error {
 			return errors.New("network error")
@@ -466,6 +460,7 @@ func TestRestoreConnectivity_SetPublicSSHError_ReturnsError(t *testing.T) {
 	a.state.PublicSSHClosed = true
 	a.state.TailscaleClientID = ""
 	a.state.TailscaleClientSecret = ""
+	setFastPoll(a, 0)
 	t.Setenv("TS_AUTHKEY", "")
 
 	err := restoreConnectivity(context.Background(), a)
@@ -478,29 +473,6 @@ func TestRestoreConnectivity_SetPublicSSHError_ReturnsError(t *testing.T) {
 }
 
 func TestRestoreConnectivity_TailscalePeerNotFound_OpensPublicSSH(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	// Simulate peer completely absent from tailnet (e.g. deleted during long deallocation).
-	tsFindPeer = func(host string) (*tailscale.Peer, error) {
-		return nil, &tailscale.PeerNotFoundError{Host: host}
-	}
-
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-fake-key", nil
-	}
-
-	restoreConnectivityPollCount = 2
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	setSSHCalled := false
 	mock := &mockAzureClient{
 		runCommandFn: func(_ string) error { return nil },
@@ -512,6 +484,15 @@ func TestRestoreConnectivity_TailscalePeerNotFound_OpensPublicSSH(t *testing.T) 
 
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	setFastPoll(a, 2)
+	ts := mockTS(t, a)
+	// Simulate peer completely absent from tailnet (e.g. deleted during long deallocation).
+	ts.findPeerFn = func(host string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: host}
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-fake-key", nil
+	}
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
@@ -523,32 +504,8 @@ func TestRestoreConnectivity_TailscalePeerNotFound_OpensPublicSSH(t *testing.T) 
 }
 
 func TestRestoreConnectivity_TSAuthKeyEnv(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-	stubTSPing(t, true)
-
 	// When TS_AUTHKEY env is set, it should be used directly (not OAuth).
 	getAuthKeyCalled := false
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		getAuthKeyCalled = true
-		return "should-not-be-used", nil
-	}
-
-	tsFindPeer = func(host string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: host, Online: true}, nil
-	}
-
-	restoreConnectivityPollCount = 1
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	var runCommandScript string
 	mock := &mockAzureClient{
 		runCommandFn: func(script string) error {
@@ -560,13 +517,23 @@ func TestRestoreConnectivity_TSAuthKeyEnv(t *testing.T) {
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
 	t.Setenv("TS_AUTHKEY", "tskey-auth-from-env")
+	stubTSPing(t, a, true)
+	setFastPoll(a, 1)
+	ts := mockTS(t, a)
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		getAuthKeyCalled = true
+		return "should-not-be-used", nil
+	}
+	ts.findPeerFn = func(host string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: host, Online: true}, nil
+	}
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
 	}
 
 	if getAuthKeyCalled {
-		t.Error("tsGetAuthKey should not be called when TS_AUTHKEY env is set")
+		t.Error("GetAuthKey should not be called when TS_AUTHKEY env is set")
 	}
 	if !contains(runCommandScript, "tskey-auth-from-env") {
 		t.Errorf("RunCommand should use TS_AUTHKEY env value; got script: %s", runCommandScript)
@@ -579,42 +546,36 @@ func TestRestoreConnectivity_TSAuthKeyEnv(t *testing.T) {
 
 func TestTailscaleReady_NoCreds(t *testing.T) {
 	t.Setenv("TS_AUTHKEY", "")
-	st := config.Default()
-	st.TailscaleClientID = ""
-	st.TailscaleClientSecret = ""
-	if tailscaleReady(st) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	a.state.TailscaleClientID = ""
+	a.state.TailscaleClientSecret = ""
+	if tailscaleReady(a) {
 		t.Error("tailscaleReady should return false with no credentials")
 	}
 }
 
 func TestTailscaleReady_WithCreds_PeerOnline(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(host string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(host string) (*tailscale.Peer, error) {
 		return &tailscale.Peer{HostName: host, Online: true}, nil
 	}
 
-	st := config.Default()
-	st.TailscaleClientID = "id"
-	st.TailscaleClientSecret = "secret"
-	if !tailscaleReady(st) {
+	a.state.TailscaleClientID = "id"
+	a.state.TailscaleClientSecret = "secret"
+	if !tailscaleReady(a) {
 		t.Error("tailscaleReady should return true when peer is online")
 	}
 }
 
 func TestTailscaleReady_WithCreds_PeerNotFound(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(host string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(host string) (*tailscale.Peer, error) {
 		return nil, &tailscale.PeerNotFoundError{Host: host}
 	}
 
-	st := config.Default()
-	st.TailscaleClientID = "id"
-	st.TailscaleClientSecret = "secret"
-	if !tailscaleReady(st) {
+	a.state.TailscaleClientID = "id"
+	a.state.TailscaleClientSecret = "secret"
+	if !tailscaleReady(a) {
 		t.Error("tailscaleReady should return true when peer is not found (VM may not exist yet)")
 	}
 }
@@ -659,27 +620,31 @@ func contains(s, sub string) bool {
 // ---------------------------------------------------------------------------
 
 func TestRestoreConnectivity_FullDownUpCycle(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-	stubTSPing(t, true)
-
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-rover-test", nil
+	var commands []string
+	mock := &mockAzureClient{
+		runCommandFn: func(script string) error {
+			commands = append(commands, fmt.Sprintf("run-command: %s", script))
+			return nil
+		},
+		setPublicSSHFn: func(allowed bool) error {
+			commands = append(commands, fmt.Sprintf("set-public-ssh: %v", allowed))
+			return nil
+		},
 	}
 
+	a := newTestAppContext(t, mock)
+	a.state.PublicSSHClosed = true
+	stubTSPing(t, a, true)
+	setFastPoll(a, 10)
+	ts := mockTS(t, a)
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-rover-test", nil
+	}
 	// Simulate real sequence:
 	// - Before up: tailscale shows peer offline
 	// - After tailscale up inside VM: peer comes online after 2 polls
 	pollCount := 0
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		pollCount++
 		if pollCount >= 3 {
 			return &tailscale.Peer{
@@ -695,24 +660,6 @@ func TestRestoreConnectivity_FullDownUpCycle(t *testing.T) {
 			Online:   false,
 		}, nil
 	}
-
-	restoreConnectivityPollCount = 10
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
-	var commands []string
-	mock := &mockAzureClient{
-		runCommandFn: func(script string) error {
-			commands = append(commands, fmt.Sprintf("run-command: %s", script))
-			return nil
-		},
-		setPublicSSHFn: func(allowed bool) error {
-			commands = append(commands, fmt.Sprintf("set-public-ssh: %v", allowed))
-			return nil
-		},
-	}
-
-	a := newTestAppContext(t, mock)
-	a.state.PublicSSHClosed = true
 
 	if err := restoreConnectivity(context.Background(), a); err != nil {
 		t.Fatalf("restoreConnectivity: %v", err)
@@ -874,26 +821,6 @@ func TestDoDisk_MinimumSize(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRestoreConnectivity_ContextCancelled(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
-	}
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-test", nil
-	}
-	restoreConnectivityPollCount = 100
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -905,6 +832,14 @@ func TestRestoreConnectivity_ContextCancelled(t *testing.T) {
 	}
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	setFastPoll(a, 100)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-test", nil
+	}
 
 	if err := restoreConnectivity(ctx, a); err != nil {
 		t.Fatalf("restoreConnectivity with cancelled context: %v", err)
@@ -983,25 +918,6 @@ func TestDoRestart_RestartsAndSyncsConnection(t *testing.T) {
 }
 
 func TestDoRestart_RestoresConnectivityWhenPublicSSHClosed(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		restoreConnectivityPollCount = 12
-		restoreConnectivityPollWait = 5 * time.Second
-	}()
-	stubTSPing(t, true)
-	restoreConnectivityPollCount = 1
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
-	}
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-good", nil
-	}
-
 	var runCommandScript string
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
@@ -1017,6 +933,15 @@ func TestDoRestart_RestoresConnectivityWhenPublicSSHClosed(t *testing.T) {
 	}
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	stubTSPing(t, a, true)
+	setFastPoll(a, 1)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-good", nil
+	}
 
 	if err := doRestart(a); err != nil {
 		t.Fatalf("doRestart: %v", err)
@@ -1066,31 +991,8 @@ func TestDoCommand_VMNotRunning(t *testing.T) {
 }
 
 func TestDoCommand_TailscalePreferred(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-	stubTSPing(t, true)
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{
-			HostName:     "rover-vm",
-			DNSName:      "rover-vm.tail94a70e.ts.net.",
-			Online:       true,
-			TailscaleIPs: []string{"100.88.25.46"},
-		}, nil
-	}
-
 	var calledName string
 	var calledArgs []string
-	runRemoteCommandFn = func(name string, args ...string) error {
-		calledName = name
-		calledArgs = args
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1102,6 +1004,20 @@ func TestDoCommand_TailscalePreferred(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	stubTSPing(t, a, true)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+	a.conn.Run = func(name string, args ...string) error {
+		calledName = name
+		calledArgs = args
+		return nil
+	}
 
 	if err := doCommand(a, []string{"ls", "-la"}); err != nil {
 		t.Fatalf("doCommand: %v", err)
@@ -1121,25 +1037,8 @@ func TestDoCommand_TailscalePreferred(t *testing.T) {
 }
 
 func TestDoCommand_SSHFallback(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
-	}
-
 	var calledName string
 	var calledArgs []string
-	runRemoteCommandFn = func(name string, args ...string) error {
-		calledName = name
-		calledArgs = args
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1152,6 +1051,14 @@ func TestDoCommand_SSHFallback(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+	a.conn.Run = func(name string, args ...string) error {
+		calledName = name
+		calledArgs = args
+		return nil
+	}
 
 	if err := doCommand(a, []string{"uname", "-a"}); err != nil {
 		t.Fatalf("doCommand: %v", err)
@@ -1174,23 +1081,7 @@ func TestDoCommand_SSHFallback(t *testing.T) {
 }
 
 func TestDoCommand_SSHFallback_TailscaleOffline(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
-	}
-
 	var calledName string
-	runRemoteCommandFn = func(name string, _ ...string) error {
-		calledName = name
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1201,6 +1092,13 @@ func TestDoCommand_SSHFallback_TailscaleOffline(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
+	}
+	a.conn.Run = func(name string, _ ...string) error {
+		calledName = name
+		return nil
+	}
 
 	if err := doCommand(a, []string{"ls"}); err != nil {
 		t.Fatalf("doCommand: %v", err)
@@ -1212,24 +1110,7 @@ func TestDoCommand_SSHFallback_TailscaleOffline(t *testing.T) {
 }
 
 func TestDoCommand_SSHFallback_TailscaleOnlineButUnreachable(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-	stubTSPing(t, false)
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
-	}
-
 	var calledName string
-	runRemoteCommandFn = func(name string, _ ...string) error {
-		calledName = name
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1240,6 +1121,14 @@ func TestDoCommand_SSHFallback_TailscaleOnlineButUnreachable(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	stubTSPing(t, a, false)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
+	}
+	a.conn.Run = func(name string, _ ...string) error {
+		calledName = name
+		return nil
+	}
 
 	if err := doCommand(a, []string{"ls"}); err != nil {
 		t.Fatalf("doCommand: %v", err)
@@ -1251,41 +1140,8 @@ func TestDoCommand_SSHFallback_TailscaleOnlineButUnreachable(t *testing.T) {
 }
 
 func TestDoCommand_RepairsClosedPublicSSHWhenTailscaleUnreachable(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origRunFn := runRemoteCommandFn
-	origPing := tsPingPeer
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		runRemoteCommandFn = origRunFn
-		tsPingPeer = origPing
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
-	}
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-good", nil
-	}
-	restoreConnectivityPollCount = 1
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	repaired := false
-	tsPingPeer = func(*tailscale.Peer) bool {
-		return repaired
-	}
-
 	var calledName string
-	runRemoteCommandFn = func(name string, _ ...string) error {
-		calledName = name
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1301,6 +1157,21 @@ func TestDoCommand_RepairsClosedPublicSSHWhenTailscaleUnreachable(t *testing.T) 
 	}
 	a := newTestAppContext(t, mock)
 	a.state.PublicSSHClosed = true
+	setFastPoll(a, 1)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-good", nil
+	}
+	ts.pingPeerFn = func(*tailscale.Peer) bool {
+		return repaired
+	}
+	a.conn.Run = func(name string, _ ...string) error {
+		calledName = name
+		return nil
+	}
 
 	if err := doCommand(a, []string{"ls"}); err != nil {
 		t.Fatalf("doCommand: %v", err)
@@ -1312,21 +1183,6 @@ func TestDoCommand_RepairsClosedPublicSSHWhenTailscaleUnreachable(t *testing.T) 
 }
 
 func TestDoCommand_CommandFailure(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
-	}
-
-	runRemoteCommandFn = func(_ string, _ ...string) error {
-		return errors.New("exit status 1")
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1337,6 +1193,12 @@ func TestDoCommand_CommandFailure(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+	a.conn.Run = func(_ string, _ ...string) error {
+		return errors.New("exit status 1")
+	}
 
 	err := doCommand(a, []string{"false"})
 	if err == nil {
@@ -1364,21 +1226,6 @@ func TestDoCommand_StatusError(t *testing.T) {
 }
 
 func TestDoCommand_EmptyHost_SSHFallback(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
-	}
-
-	runRemoteCommandFn = func(_ string, _ ...string) error {
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1388,6 +1235,12 @@ func TestDoCommand_EmptyHost_SSHFallback(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+	a.conn.Run = func(_ string, _ ...string) error {
+		return nil
+	}
 
 	err := doCommand(a, []string{"ls"})
 	if err == nil {
@@ -1399,23 +1252,7 @@ func TestDoCommand_EmptyHost_SSHFallback(t *testing.T) {
 }
 
 func TestDoCommand_TailscaleNotInstalled_FallsBackToSSH(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return nil, tailscale.ErrNotInstalled
-	}
-
 	var calledName string
-	runRemoteCommandFn = func(name string, _ ...string) error {
-		calledName = name
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1426,6 +1263,13 @@ func TestDoCommand_TailscaleNotInstalled_FallsBackToSSH(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return nil, tailscale.ErrNotInstalled
+	}
+	a.conn.Run = func(name string, _ ...string) error {
+		calledName = name
+		return nil
+	}
 
 	if err := doCommand(a, []string{"ls"}); err != nil {
 		t.Fatalf("doCommand: %v", err)
@@ -1436,23 +1280,7 @@ func TestDoCommand_TailscaleNotInstalled_FallsBackToSSH(t *testing.T) {
 }
 
 func TestDoCommand_EmptyArgs(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origRunFn := runRemoteCommandFn
-	defer func() {
-		tsFindPeer = origFindPeer
-		runRemoteCommandFn = origRunFn
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
-	}
-
 	var calledArgs []string
-	runRemoteCommandFn = func(_ string, args ...string) error {
-		calledArgs = args
-		return nil
-	}
-
 	mock := &mockAzureClient{
 		statusFn: func() (azure.Info, error) {
 			return azure.Info{
@@ -1463,6 +1291,13 @@ func TestDoCommand_EmptyArgs(t *testing.T) {
 		},
 	}
 	a := newTestAppContext(t, mock)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return nil, &tailscale.PeerNotFoundError{Host: "rover-vm"}
+	}
+	a.conn.Run = func(_ string, args ...string) error {
+		calledArgs = args
+		return nil
+	}
 
 	if err := doCommand(a, []string{}); err != nil {
 		t.Fatalf("doCommand with empty args: %v", err)
@@ -1478,15 +1313,9 @@ func TestDoCommand_EmptyArgs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDoConnect_PeerOnline(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origConnect := tsConnect
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsConnect = origConnect
-	}()
-	stubTSPing(t, true)
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	stubTSPing(t, a, true)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return &tailscale.Peer{
 			HostName:     "rover-vm",
 			DNSName:      "rover-vm.tail94a70e.ts.net.",
@@ -1496,45 +1325,24 @@ func TestDoConnect_PeerOnline(t *testing.T) {
 	}
 
 	connectCalled := false
-	tsConnect = func(_, _ string, _ ...string) error {
+	mockTS(t, a).connectFn = func(_, _ string, _ ...string) error {
 		connectCalled = true
 		return nil
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	if err := doConnect(a); err != nil {
 		t.Fatalf("doConnect with online peer: %v", err)
 	}
 	if !connectCalled {
-		t.Error("tsConnect was not called")
+		t.Error("Tailscale Connect was not called")
 	}
 }
 
 func TestDoConnect_ReconnectsAfterDroppedSession(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origConnect := tsConnect
-	origPing := tsPingPeer
-	origMaxConsecutive := connectReconnectMaxConsecutive
-	origBaseWait := connectReconnectBaseWait
-	origMaxWait := connectReconnectMaxWait
-	origHealthyAfter := connectReconnectHealthyAfter
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsConnect = origConnect
-		tsPingPeer = origPing
-		connectReconnectMaxConsecutive = origMaxConsecutive
-		connectReconnectBaseWait = origBaseWait
-		connectReconnectMaxWait = origMaxWait
-		connectReconnectHealthyAfter = origHealthyAfter
-	}()
-
-	connectReconnectMaxConsecutive = 2
-	connectReconnectBaseWait = time.Millisecond
-	connectReconnectMaxWait = time.Millisecond
-	connectReconnectHealthyAfter = time.Hour
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	setFastReconnect(a, 2)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return &tailscale.Peer{
 			HostName:     "rover-vm",
 			DNSName:      "rover-vm.tail94a70e.ts.net.",
@@ -1542,18 +1350,16 @@ func TestDoConnect_ReconnectsAfterDroppedSession(t *testing.T) {
 			TailscaleIPs: []string{"100.88.25.46"},
 		}, nil
 	}
-	tsPingPeer = func(*tailscale.Peer) bool { return true }
+	ts.pingPeerFn = func(*tailscale.Peer) bool { return true }
 
 	connectCalls := 0
-	tsConnect = func(_, _ string, _ ...string) error {
+	ts.connectFn = func(_, _ string, _ ...string) error {
 		connectCalls++
 		if connectCalls == 1 {
 			return errors.New("connection timed out")
 		}
 		return nil
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	if err := doConnect(a); err != nil {
 		t.Fatalf("doConnect with dropped session: %v", err)
@@ -1564,44 +1370,23 @@ func TestDoConnect_ReconnectsAfterDroppedSession(t *testing.T) {
 }
 
 func TestDoConnect_CapsRapidReconnectFailures(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origConnect := tsConnect
-	origPing := tsPingPeer
-	origMaxConsecutive := connectReconnectMaxConsecutive
-	origBaseWait := connectReconnectBaseWait
-	origMaxWait := connectReconnectMaxWait
-	origHealthyAfter := connectReconnectHealthyAfter
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsConnect = origConnect
-		tsPingPeer = origPing
-		connectReconnectMaxConsecutive = origMaxConsecutive
-		connectReconnectBaseWait = origBaseWait
-		connectReconnectMaxWait = origMaxWait
-		connectReconnectHealthyAfter = origHealthyAfter
-	}()
-
-	connectReconnectMaxConsecutive = 2
-	connectReconnectBaseWait = time.Millisecond
-	connectReconnectMaxWait = time.Millisecond
-	connectReconnectHealthyAfter = time.Hour
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	setFastReconnect(a, 2)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return &tailscale.Peer{
 			HostName: "rover-vm",
 			DNSName:  "rover-vm.tail94a70e.ts.net.",
 			Online:   true,
 		}, nil
 	}
-	tsPingPeer = func(*tailscale.Peer) bool { return true }
+	ts.pingPeerFn = func(*tailscale.Peer) bool { return true }
 
 	connectCalls := 0
-	tsConnect = func(_, _ string, _ ...string) error {
+	ts.connectFn = func(_, _ string, _ ...string) error {
 		connectCalls++
 		return errors.New("permission denied")
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	err := doConnect(a)
 	if err == nil {
@@ -1616,14 +1401,10 @@ func TestDoConnect_CapsRapidReconnectFailures(t *testing.T) {
 }
 
 func TestDoConnect_PeerOffline(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return &tailscale.Peer{HostName: "rover-vm", Online: false}, nil
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	err := doConnect(a)
 	if err == nil {
@@ -1635,18 +1416,14 @@ func TestDoConnect_PeerOffline(t *testing.T) {
 }
 
 func TestDoConnect_PeerOnlineButUnreachable(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-	stubTSPing(t, false)
 	t.Setenv("TS_AUTHKEY", "")
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
-	}
-
 	a := newTestAppContext(t, &mockAzureClient{})
 	a.state.TailscaleClientID = ""
 	a.state.TailscaleClientSecret = ""
+	stubTSPing(t, a, false)
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{HostName: "rover-vm", Online: true}, nil
+	}
 
 	err := doConnect(a)
 	if err == nil {
@@ -1658,40 +1435,7 @@ func TestDoConnect_PeerOnlineButUnreachable(t *testing.T) {
 }
 
 func TestDoConnect_RepairsOnlineButUnreachablePeer(t *testing.T) {
-	origFindPeer := tsFindPeer
-	origGetAuthKey := tsGetAuthKey
-	origConnect := tsConnect
-	origPing := tsPingPeer
-	origPollCount := restoreConnectivityPollCount
-	origPollWait := restoreConnectivityPollWait
-	defer func() {
-		tsFindPeer = origFindPeer
-		tsGetAuthKey = origGetAuthKey
-		tsConnect = origConnect
-		tsPingPeer = origPing
-		restoreConnectivityPollCount = origPollCount
-		restoreConnectivityPollWait = origPollWait
-	}()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
-		return &tailscale.Peer{
-			HostName:     "rover-vm",
-			DNSName:      "rover-vm.tail94a70e.ts.net.",
-			Online:       true,
-			TailscaleIPs: []string{"100.88.25.46"},
-		}, nil
-	}
-	tsGetAuthKey = func(_, _ string, _ []string) (string, error) {
-		return "tskey-auth-good", nil
-	}
-	restoreConnectivityPollCount = 1
-	restoreConnectivityPollWait = 1 * time.Millisecond
-
 	repaired := false
-	tsPingPeer = func(*tailscale.Peer) bool {
-		return repaired
-	}
-
 	var runCommandScript string
 	mock := &mockAzureClient{
 		runCommandFn: func(script string) error {
@@ -1702,13 +1446,28 @@ func TestDoConnect_RepairsOnlineButUnreachablePeer(t *testing.T) {
 	}
 
 	var connectedUser, connectedHost string
-	tsConnect = func(user, host string, _ ...string) error {
+	a := newTestAppContext(t, mock)
+	setFastPoll(a, 1)
+	ts := mockTS(t, a)
+	ts.findPeerFn = func(_ string) (*tailscale.Peer, error) {
+		return &tailscale.Peer{
+			HostName:     "rover-vm",
+			DNSName:      "rover-vm.tail94a70e.ts.net.",
+			Online:       true,
+			TailscaleIPs: []string{"100.88.25.46"},
+		}, nil
+	}
+	ts.getAuthKeyFn = func(_, _ string, _ []string) (string, error) {
+		return "tskey-auth-good", nil
+	}
+	ts.pingPeerFn = func(*tailscale.Peer) bool {
+		return repaired
+	}
+	ts.connectFn = func(user, host string, _ ...string) error {
 		connectedUser = user
 		connectedHost = host
 		return nil
 	}
-
-	a := newTestAppContext(t, mock)
 
 	if err := doConnect(a); err != nil {
 		t.Fatalf("doConnect: %v", err)
@@ -1722,14 +1481,10 @@ func TestDoConnect_RepairsOnlineButUnreachablePeer(t *testing.T) {
 }
 
 func TestDoConnect_PeerNotFound(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(host string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(host string) (*tailscale.Peer, error) {
 		return nil, &tailscale.PeerNotFoundError{Host: host}
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	err := doConnect(a)
 	if err == nil {
@@ -1741,14 +1496,10 @@ func TestDoConnect_PeerNotFound(t *testing.T) {
 }
 
 func TestDoConnect_TailscaleNotInstalled(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return nil, tailscale.ErrNotInstalled
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	err := doConnect(a)
 	if err == nil {
@@ -1760,14 +1511,10 @@ func TestDoConnect_TailscaleNotInstalled(t *testing.T) {
 }
 
 func TestDoConnect_TailscaleNotRunning(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return nil, tailscale.ErrNotRunning
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	err := doConnect(a)
 	if err == nil {
@@ -1779,14 +1526,10 @@ func TestDoConnect_TailscaleNotRunning(t *testing.T) {
 }
 
 func TestDoConnect_GenericError(t *testing.T) {
-	orig := tsFindPeer
-	defer func() { tsFindPeer = orig }()
-
-	tsFindPeer = func(_ string) (*tailscale.Peer, error) {
+	a := newTestAppContext(t, &mockAzureClient{})
+	mockTS(t, a).findPeerFn = func(_ string) (*tailscale.Peer, error) {
 		return nil, errors.New("unexpected network error")
 	}
-
-	a := newTestAppContext(t, &mockAzureClient{})
 
 	err := doConnect(a)
 	if err == nil {
@@ -1794,48 +1537,5 @@ func TestDoConnect_GenericError(t *testing.T) {
 	}
 	if !contains(err.Error(), "unexpected network error") {
 		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// TestBuildReauthScript locks in the properties of the repair script that exist
-// to prevent the recurrence of the Run Command conflict / wedge hang observed
-// in production on 2026-06-17.
-func TestBuildReauthScript(t *testing.T) {
-	script := buildReauthScript("tskey-auth-ABC123", "rover-vm", "tag:rover")
-
-	// Guest-bounded: a wedged daemon cannot pin the extension for Azure's
-	// ~90 minute script ceiling (the root cause of the 1.5h hang).
-	if !contains(script, "timeout 120s tailscale up") {
-		t.Errorf("script must bound `tailscale up` with timeout(1)\ngot: %s", script)
-	}
-	// Daemon restart clears a wedged tailscaled (the observed data-plane failure).
-	if !contains(script, "systemctl restart tailscaled") {
-		t.Errorf("script must restart tailscaled first\ngot: %s", script)
-	}
-	// The final tailscale-up must NOT swallow failures (regression of `|| true`,
-	// which hid the real error and forced a 60s blind poll).
-	lines := strings.Split(strings.TrimSpace(script), "\n")
-	last := strings.TrimSpace(lines[len(lines)-1])
-	if contains(last, "|| true") {
-		t.Errorf("final tailscale-up line must propagate failures (no `|| true`)\ngot: %s", last)
-	}
-	// Interpolation.
-	if !contains(script, "tskey-auth-ABC123") || !contains(script, "rover-vm") || !contains(script, "tag:rover") {
-		t.Errorf("authkey/hostname/tags not interpolated\ngot: %s", script)
-	}
-	// --force-reauth is deliberately absent: combined with ephemeral auth keys
-	// it mints duplicate nodes (the stale-ghost problem). The daemon restart
-	// covers unwedging instead.
-	if contains(script, "--force-reauth") {
-		t.Errorf("script must not use --force-reauth (duplicate-node risk with ephemeral keys)\ngot: %s", script)
-	}
-}
-
-func TestBuildReauthScript_SanitizesShellMetachars(t *testing.T) {
-	// Shell metacharacters in hostname/tags must be stripped before
-	// interpolation to prevent injection via persisted state.
-	script := buildReauthScript("k", "rover-vm'; rm -rf /; echo '", "tag:rover")
-	if contains(script, "rm -rf") {
-		t.Errorf("shell metacharacters in hostname were not stripped\ngot: %s", script)
 	}
 }

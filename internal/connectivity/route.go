@@ -154,7 +154,7 @@ func (s *Service) connectWithReconnect(ctx context.Context, target string, extra
 			return fmt.Errorf("tailscale ssh disconnected after %d reconnect attempts: %w", s.Reconnect.MaxConsecutive, err)
 		}
 
-		delay := s.connectReconnectDelay(consecutiveFailures)
+		delay := s.reconnectDelay(consecutiveFailures)
 		ui.Warn("Tailscale SSH disconnected: %v", err)
 		ui.Info("Reconnecting over Tailscale in %s (Ctrl-C to stop)...", delay)
 		if err := sleepContext(ctx, delay); err != nil {
@@ -170,7 +170,7 @@ func (s *Service) connectWithReconnect(ctx context.Context, target string, extra
 	}
 }
 
-func (s *Service) connectReconnectDelay(attempt int) time.Duration {
+func (s *Service) reconnectDelay(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
