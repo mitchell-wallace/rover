@@ -1,6 +1,9 @@
 package tailscale
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestPeerTarget(t *testing.T) {
 	tests := []struct {
@@ -30,6 +33,21 @@ func TestPeerTarget(t *testing.T) {
 				t.Errorf("Target() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPingPeerArgsAcceptsRelayReachability(t *testing.T) {
+	got := pingPeerArgs("rover-vm.tailnet.ts.net")
+	want := []string{
+		"ping",
+		"--timeout=3s",
+		"--c",
+		"1",
+		"--until-direct=false",
+		"rover-vm.tailnet.ts.net",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pingPeerArgs() = %v, want %v", got, want)
 	}
 }
 
