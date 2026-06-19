@@ -1,6 +1,7 @@
 package connectivity
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -23,9 +24,10 @@ type fakeAzure struct {
 	setPublicSSHErr   error
 	setPublicSSHFn    func(bool) error
 
+	runCommandCtxs    []context.Context
 	runCommandScripts []string
 	runCommandErr     error
-	runCommandFn      func(string) error
+	runCommandFn      func(context.Context, string) error
 }
 
 func (f *fakeAzure) Status() (azure.Info, error) {
@@ -44,10 +46,11 @@ func (f *fakeAzure) SetPublicSSH(allowed bool) error {
 	return f.setPublicSSHErr
 }
 
-func (f *fakeAzure) RunCommand(script string) error {
+func (f *fakeAzure) RunCommand(ctx context.Context, script string) error {
+	f.runCommandCtxs = append(f.runCommandCtxs, ctx)
 	f.runCommandScripts = append(f.runCommandScripts, script)
 	if f.runCommandFn != nil {
-		return f.runCommandFn(script)
+		return f.runCommandFn(ctx, script)
 	}
 	return f.runCommandErr
 }

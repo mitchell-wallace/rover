@@ -112,7 +112,10 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 }
 
 // Down deallocates the VM or deletes all Rover Azure resources.
-func (s *Service) Down(_ context.Context, del, assumeYes bool) error {
+func (s *Service) Down(ctx context.Context, del, assumeYes bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if del {
 		ok := assumeYes
 		if !ok {
@@ -135,7 +138,7 @@ func (s *Service) Down(_ context.Context, del, assumeYes bool) error {
 	if del {
 		if current, serr := s.Azure.Status(); serr == nil && current.Running() {
 			ui.Info("Running pre-delete Tailscale logout inside the VM...")
-			if err := s.Azure.RunCommand(tailscaleLogoutScript()); err != nil {
+			if err := s.Azure.RunCommand(ctx, tailscaleLogoutScript()); err != nil {
 				ui.Warn("Tailscale logout inside VM failed: %v", err)
 			}
 		} else if serr != nil {

@@ -23,8 +23,11 @@ import (
 // transient contention no longer surfaces as a silent repair failure. Guest
 // scripts must bound themselves (e.g. via `timeout(1)`) so a wedged process
 // inside the VM cannot pin the extension for its ~90 minute script ceiling.
-func (c *Client) RunCommand(script string) error {
-	return c.runCommand(context.Background(), script, defaultRunCommandPolicy(), defaultRunCommandRunner)
+func (c *Client) RunCommand(ctx context.Context, script string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return c.runCommand(ctx, script, defaultRunCommandPolicy(), defaultRunCommandRunner)
 }
 
 // runCommandPolicy governs RunCommand's retry/backoff behaviour.

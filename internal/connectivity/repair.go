@@ -33,7 +33,7 @@ func (s *Service) Reauthenticate(ctx context.Context) bool {
 	if authKey != "" {
 		ui.Info("Re-authenticating Tailscale inside the VM...")
 		script := buildReauthScript(authKey, s.State.TSHostname(), s.State.TSTags())
-		if err := s.Azure.RunCommand(script); err != nil {
+		if err := s.Azure.RunCommand(ctx, script); err != nil {
 			reportRunCommandFailure(err)
 		}
 

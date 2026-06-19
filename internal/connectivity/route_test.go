@@ -82,7 +82,7 @@ func TestDoCommand_SSHFallback_TailscaleOnlineButUnreachable(t *testing.T) {
 
 func TestDoCommand_RepairsClosedPublicSSHWhenTailscaleUnreachable(t *testing.T) {
 	repaired := false
-	az := &fakeAzure{status: runningInfo(), runCommandFn: func(string) error {
+	az := &fakeAzure{status: runningInfo(), runCommandFn: func(context.Context, string) error {
 		repaired = true
 		return nil
 	}}
@@ -104,6 +104,72 @@ func TestDoCommand_RepairsClosedPublicSSHWhenTailscaleUnreachable(t *testing.T) 
 	if len(az.setPublicSSHCalls) != 0 {
 		t.Fatalf("SetPublicSSH should not be called when repair succeeds, got %v", az.setPublicSSHCalls)
 	}
+}
+
+func TestDoCommand_RestoresClosedPublicSSHWhenTailscaleOffline(t *testing.T) {
+	az := &fakeAzure{status: runningInfo()}
+	var calls []commandCall
+	s := newTestService(t, az, &fakeTailscale{
+		findPeerResults: []peerResult{{peer: offlinePeer()}},
+	})
+	s.State.PublicSSHClosed = true
+	s.State.TailscaleClientID = ""
+	s.State.TailscaleClientSecret = ""
+	s.Run = recordCommandRunner(&calls, nil)
+
+	requireNoErr(t, s.RunCommand(context.Background(), []string{"ls"}))
+
+	if !reflect.DeepEqual(az.setPublicSSHCalls, []bool{true}) {
+		t.Fatalf("SetPublicSSH calls = %v, want [true]", az.setPublicSSHCalls)
+	}
+	requireEqual(t, calls[0].name, "ssh")
+}
+
+func TestDoCommand_RestoresClosedPublicSSHWhenPeerNotFound(t *testing.T) {
+	az := &fakeAzure{status: runningInfo()}
+	var calls []commandCall
+	s := newTestService(t, az, &fakeTailscale{
+		findPeerResults: []peerResult{{err: &tailscale.PeerNotFoundError{Host: "rover-vm"}}},
+	})
+	s.State.PublicSSHClosed = true
+	s.State.TailscaleClientID = ""
+	s.State.TailscaleClientSecret = ""
+	s.Run = recordCommandRunner(&calls, nil)
+
+	requireNoErr(t, s.RunCommand(context.Background(), []string{"ls"}))
+
+	if !reflect.DeepEqual(az.setPublicSSHCalls, []bool{true}) {
+		t.Fatalf("SetPublicSSH calls = %v, want [true]", az.setPublicSSHCalls)
+	}
+	requireEqual(t, calls[0].name, "ssh")
+}
+
+func TestDoCommand_ReauthUsesCallerContext(t *testing.T) {
+	repaired := false
+	az := &fakeAzure{status: runningInfo(), runCommandFn: func(ctx context.Context, _ string) error {
+		if ctx == nil {
+			t.Fatal("RunCommand context is nil")
+		}
+		repaired = true
+		return nil
+	}}
+	var calls []commandCall
+	s := newTestService(t, az, &fakeTailscale{
+		authKey:         "tskey-auth-good",
+		findPeerResults: []peerResult{{peer: offlinePeer()}, {peer: onlinePeer()}},
+		pingPeerFn: func(*tailscale.Peer) bool {
+			return repaired
+		},
+	})
+	s.State.PublicSSHClosed = true
+	s.Run = recordCommandRunner(&calls, nil)
+
+	requireNoErr(t, s.RunCommand(context.Background(), []string{"ls"}))
+
+	if len(az.runCommandCtxs) != 1 {
+		t.Fatalf("RunCommand contexts = %d, want 1", len(az.runCommandCtxs))
+	}
+	requireEqual(t, calls[0].name, "tailscale")
 }
 
 func TestDoCommand_CommandFailure(t *testing.T) {
@@ -190,7 +256,7 @@ func TestDoConnect_CapsRapidReconnectFailures(t *testing.T) {
 
 func TestDoConnect_ReconnectDoesNotOpenPublicSSH(t *testing.T) {
 	repaired := false
-	az := &fakeAzure{runCommandFn: func(string) error {
+	az := &fakeAzure{runCommandFn: func(context.Context, string) error {
 		repaired = true
 		return nil
 	}}
@@ -235,7 +301,7 @@ func TestDoConnect_PeerOnlineButUnreachable(t *testing.T) {
 
 func TestDoConnect_RepairsOnlineButUnreachablePeer(t *testing.T) {
 	repaired := false
-	az := &fakeAzure{runCommandFn: func(string) error {
+	az := &fakeAzure{runCommandFn: func(context.Context, string) error {
 		repaired = true
 		return nil
 	}}

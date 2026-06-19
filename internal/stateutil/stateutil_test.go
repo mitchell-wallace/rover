@@ -37,9 +37,19 @@ func TestSyncConnection_SavesState(t *testing.T) {
 	if st.Connection.VMSize != "Standard_B2als_v2" {
 		t.Errorf("Connection.VMSize = %q, want Standard_B2als_v2", st.Connection.VMSize)
 	}
+	reloaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("load persisted state: %v", err)
+	}
+	if reloaded.Connection.PublicIP != "1.2.3.4" {
+		t.Errorf("persisted Connection.PublicIP = %q, want 1.2.3.4", reloaded.Connection.PublicIP)
+	}
+	if reloaded.Connection.VMSize != "Standard_B2als_v2" {
+		t.Errorf("persisted Connection.VMSize = %q, want Standard_B2als_v2", reloaded.Connection.VMSize)
+	}
 }
 
-func TestSyncConnection_PreservesVMSize(t *testing.T) {
+func TestSyncConnection_RecordsAzureVMSizeSnapshot(t *testing.T) {
 	st := newTestState(t)
 
 	// Re-asserting a non-empty VM size overwrites the previously recorded size.

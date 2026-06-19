@@ -19,7 +19,7 @@ type AzureLifecycle interface {
 	Restart() (azure.Info, error)
 	ResizeDisk(gb int) (azure.Info, error)
 	SSH(extra ...string) error
-	RunCommand(script string) error
+	RunCommand(ctx context.Context, script string) error
 }
 
 type connRestorer interface {

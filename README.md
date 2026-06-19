@@ -426,7 +426,7 @@ sub-services.
 
 **Provider seams — inject, don't patch.** Every cross-package dependency is a
 constructor-injected interface; there are no global function vars or
-package-level timing knobs.
+package-level timing knobs used as test seams.
 
 - `tailscale.Client` (`internal/tailscale/client.go`) — the one **provider-side**
   interface, shared by `connectivity`, `provision`, and `vm`. It lives in

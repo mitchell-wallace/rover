@@ -15,7 +15,7 @@ func TestRestoreConnectivity_PublicSSHOpen_NoAction(t *testing.T) {
 			t.Fatal("SetPublicSSH should not be called when public SSH is already open")
 			return nil
 		},
-		runCommandFn: func(string) error {
+		runCommandFn: func(context.Context, string) error {
 			t.Fatal("RunCommand should not be called when public SSH is already open")
 			return nil
 		},

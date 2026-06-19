@@ -123,7 +123,7 @@ func (s *Service) Run(ctx context.Context) error {
 
 	if authKey != "" || usingOAuth {
 		ui.Info("Verifying Tailscale connection to VM...")
-		if peer, err := s.TS.FindPeer(tshost); err == nil && peer.Online {
+		if peer, err := s.TS.FindPeer(tshost); err == nil && peer.Online && s.TS.PingPeer(peer) {
 			ui.Info("Tailscale connection verified.")
 			if s.State.PublicSSHClosed {
 				ui.Info("Public SSH already closed — VM reachable only over Tailscale.")
@@ -141,7 +141,7 @@ func (s *Service) Run(ctx context.Context) error {
 				}
 			}
 		} else {
-			ui.Warn("Tailscale verification failed: peer offline or not found — keeping public SSH OPEN on port %d.", s.State.SSHPort())
+			ui.Warn("Tailscale verification failed: peer offline, not found, or unreachable — keeping public SSH OPEN on port %d.", s.State.SSHPort())
 		}
 	}
 

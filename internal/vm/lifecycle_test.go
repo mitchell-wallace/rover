@@ -84,7 +84,7 @@ func (f *fakeAzure) SSH(extra ...string) error {
 	return f.sshErr
 }
 
-func (f *fakeAzure) RunCommand(script string) error {
+func (f *fakeAzure) RunCommand(_ context.Context, script string) error {
 	f.runCommandScripts = append(f.runCommandScripts, script)
 	return f.runCommandErr
 }
@@ -295,6 +295,11 @@ func TestDown_Delete_SavesState(t *testing.T) {
 	requireEqual(t, h.st.PublicSSHClosed, false)
 	requireEqual(t, h.st.AnsibleApplied, false)
 	requireEqual(t, h.st.Connection.Exists, false)
+	reloaded, err := config.Load()
+	requireNoErr(t, err)
+	requireEqual(t, reloaded.PublicSSHClosed, false)
+	requireEqual(t, reloaded.AnsibleApplied, false)
+	requireEqual(t, reloaded.Connection.Exists, false)
 }
 
 func TestDown_Deallocate_SyncsConnection(t *testing.T) {

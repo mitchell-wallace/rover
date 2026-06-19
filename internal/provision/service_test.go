@@ -43,6 +43,7 @@ type peerResult struct {
 type fakeTailscale struct {
 	findPeerCalls   []string
 	findPeerResults []peerResult
+	pingResult      bool
 
 	getAuthKeyCalls int
 	authKey         string
@@ -62,9 +63,7 @@ func (f *fakeTailscale) FindPeer(host string) (*tailscale.Peer, error) {
 	return res.peer, res.err
 }
 
-func (f *fakeTailscale) PingPeer(*tailscale.Peer) bool {
-	return false
-}
+func (f *fakeTailscale) PingPeer(*tailscale.Peer) bool { return f.pingResult }
 
 func (f *fakeTailscale) GetAuthKey(_, _ string, _ []string) (string, error) {
 	f.getAuthKeyCalls++
@@ -269,7 +268,7 @@ const (
 	lineLockdown      = "==> Locking down: closing public SSH (VM stays reachable over Tailscale)..."
 	lineLocked        = "==> Public SSH closed. The VM is now reachable only over Tailscale ('rover connect')."
 	lineAlreadyClosed = "==> Public SSH already closed — VM reachable only over Tailscale."
-	lineVerifyFailed  = "[warn] Tailscale verification failed: peer offline or not found — keeping public SSH OPEN on port 2222."
+	lineVerifyFailed  = "[warn] Tailscale verification failed: peer offline, not found, or unreachable — keeping public SSH OPEN on port 2222."
 )
 
 func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
@@ -277,6 +276,7 @@ func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
 		name             string
 		initialClosed    bool
 		findPeerResults  []peerResult
+		pingResult       bool
 		wantSetPublicSSH []bool
 		wantPublicClosed bool
 		wantExactLines   []string
@@ -287,6 +287,7 @@ func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
 				{peer: onlinePeer()},
 				{peer: onlinePeer()},
 			},
+			pingResult:       true,
 			wantSetPublicSSH: []bool{false},
 			wantPublicClosed: true,
 			wantExactLines:   []string{lineVerify, lineVerified, lineLockdown, lineLocked},
@@ -301,12 +302,23 @@ func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
 			wantExactLines:   []string{lineVerify, lineVerifyFailed},
 		},
 		{
+			name: "online but unpingable leaves public ssh open",
+			findPeerResults: []peerResult{
+				{peer: onlinePeer()},
+				{peer: onlinePeer()},
+			},
+			pingResult:       false,
+			wantPublicClosed: false,
+			wantExactLines:   []string{lineVerify, lineVerifyFailed},
+		},
+		{
 			name:          "already closed is not closed again",
 			initialClosed: true,
 			findPeerResults: []peerResult{
 				{peer: onlinePeer()},
 				{peer: onlinePeer()},
 			},
+			pingResult:       true,
 			wantPublicClosed: true,
 			wantExactLines:   []string{lineVerify, lineVerified, lineAlreadyClosed},
 		},
@@ -316,7 +328,7 @@ func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			setEnv(t, "TS_AUTHKEY", "tskey-auth-lock")
 			az := &fakeAzure{info: runningInfo()}
-			ts := &fakeTailscale{findPeerResults: tt.findPeerResults}
+			ts := &fakeTailscale{findPeerResults: tt.findPeerResults, pingResult: tt.pingResult}
 			s, _, _ := newTestService(t, az, ts)
 			s.State.PublicSSHClosed = tt.initialClosed
 

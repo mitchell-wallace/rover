@@ -83,8 +83,8 @@ func loadContext() (*appContext, error) {
 		Conn:      conn,
 		Provision: prov,
 	}
-	conn.Restart = func() error {
-		return vmSvc.Restart(context.Background())
+	conn.Restart = func(ctx context.Context) error {
+		return vmSvc.Restart(ctx)
 	}
 	return &appContext{
 		state:     st,

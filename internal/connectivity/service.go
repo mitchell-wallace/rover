@@ -19,7 +19,7 @@ import (
 type AzureControl interface {
 	Status() (azure.Info, error)
 	SetPublicSSH(allowed bool) error
-	RunCommand(script string) error
+	RunCommand(ctx context.Context, script string) error
 }
 
 // CommandRunner runs an external command with the user's stdio attached.
@@ -52,7 +52,7 @@ var DefaultReconnect = ReconnectConfig{
 
 // Restarter repairs a wedged Tailscale data plane by restarting the VM. It is
 // optional because the package cannot import cmd or vm during the extraction.
-type Restarter func() error
+type Restarter func(context.Context) error
 
 // Service owns Tailscale readiness, repair, routing, and command execution.
 type Service struct {

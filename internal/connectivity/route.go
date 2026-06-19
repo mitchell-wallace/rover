@@ -56,7 +56,7 @@ func (s *Service) Connect(ctx context.Context, extra ...string) error {
 			"A reboot restarts the Tailscale daemon inside the VM, which usually restores the data plane. rover reconnects automatically afterward.",
 			false,
 		); cerr == nil && ok && s.Restart != nil {
-			if rerr := s.Restart(); rerr == nil {
+			if rerr := s.Restart(ctx); rerr == nil {
 				if repairedPeer, ferr := s.TS.FindPeer(host); ferr == nil && repairedPeer.Online && s.TS.PingPeer(repairedPeer) {
 					target := repairedPeer.Target()
 					ui.Info("Connecting over Tailscale to %s@%s...", s.State.AdminUsername, target)
@@ -117,6 +117,18 @@ func (s *Service) RunCommand(ctx context.Context, args []string) error {
 				}
 			}
 			ui.Warn("Falling back to public SSH.")
+		}
+	}
+	if s.State.PublicSSHClosed {
+		restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		if err := s.Restore(restoreCtx); err != nil {
+			return err
+		}
+		if repairedPeer, err := s.TS.FindPeer(s.State.TSHostname()); err == nil && s.TS.PingPeer(repairedPeer) {
+			target := repairedPeer.Target()
+			ui.Info("Running over Tailscale (%s): %s", target, cmdStr)
+			return runFn("tailscale", "ssh", s.State.AdminUsername+"@"+target, "--", cmdStr)
 		}
 	}
 
