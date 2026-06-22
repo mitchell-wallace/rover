@@ -190,6 +190,90 @@
     msg: "tre-command has no prebuilt binary for {{ ansible_architecture }}; skipped (install via cargo if needed)."
   when: ansible_architecture != 'x86_64'
 
+# --- btm (bottom): rust-based process/system monitor TUI -------------------
+# Single `btm` binary at the archive root.
+- name: Install btm (bottom)
+  ansible.builtin.unarchive:
+    src: "https://github.com/ClementTsang/bottom/releases/download/{{ btm_version }}/bottom_{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-gnu.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - btm
+    mode: "0755"
+    creates: /usr/local/bin/btm
+
+# --- dust: du/df replacement in Rust ---------------------------------------
+# Binary is nested under a versioned subdir inside the archive, so stage then
+# copy (same shape as the broot install below).
+- name: Ensure dust staging dir exists
+  ansible.builtin.file:
+    path: /tmp/dust-install
+    state: directory
+    mode: "0755"
+
+- name: Stage dust archive
+  ansible.builtin.unarchive:
+    src: "https://github.com/bootandy/dust/releases/download/v{{ dust_version }}/dust-v{{ dust_version }}-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-musl.tar.gz"
+    dest: /tmp/dust-install
+    remote_src: true
+    creates: /usr/local/bin/dust
+  register: dust_archive
+
+- name: Install dust binary
+  ansible.builtin.copy:
+    src: "/tmp/dust-install/dust-v{{ dust_version }}-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-musl/dust"
+    dest: /usr/local/bin/dust
+    remote_src: true
+    mode: "0755"
+  when: dust_archive.changed
+
+# --- eza: ls replacement (formerly exa) ------------------------------------
+# Single `eza` binary at the archive root (stored as `./eza`, hence the prefix
+# in `include` — `eza` alone won't match the tar entry).
+- name: Install eza
+  ansible.builtin.unarchive:
+    src: "https://github.com/eza-community/eza/releases/download/v{{ eza_version }}/eza_{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-gnu.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - ./eza
+    mode: "0755"
+    creates: /usr/local/bin/eza
+
+# --- delta: git diff pager -------------------------------------------------
+# Binary nested under a versioned subdir inside the archive; stage then copy.
+- name: Ensure delta staging dir exists
+  ansible.builtin.file:
+    path: /tmp/delta-install
+    state: directory
+    mode: "0755"
+
+- name: Stage delta archive
+  ansible.builtin.unarchive:
+    src: "https://github.com/dandavison/delta/releases/download/{{ delta_version }}/delta-{{ delta_version }}-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-gnu.tar.gz"
+    dest: /tmp/delta-install
+    remote_src: true
+    creates: /usr/local/bin/delta
+  register: delta_archive
+
+- name: Install delta binary
+  ansible.builtin.copy:
+    src: "/tmp/delta-install/delta-{{ delta_version }}-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}-unknown-linux-gnu/delta"
+    dest: /usr/local/bin/delta
+    remote_src: true
+    mode: "0755"
+  when: delta_archive.changed
+
+# Wire delta into git as the diff/log/show pager. Managed template; personal
+# settings (user.name, user.email, ...) go in ~/.gitconfig.local, which the
+# template `[include]`s and Rover never overwrites.
+- name: Install managed gitconfig (delta pager)
+  become_user: "{{ target_user }}"
+  ansible.builtin.template:
+    src: gitconfig.j2
+    dest: "{{ user_home }}/.gitconfig"
+    mode: "0644"
+
 # --- Terminfo: xterm-ghostty -----------------------------------------------
 # Ghostty ships its own terminfo (not in ncurses-term). When a Ghostty client
 # connects over SSH it forwards TERM=xterm-ghostty; without the entry zsh can't
