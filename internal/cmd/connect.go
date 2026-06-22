@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func init() {
 	cmd := &cobra.Command{
@@ -15,7 +19,7 @@ and the local 'tailscale' client connected.`,
 			if err != nil {
 				return err
 			}
-			return doConnect(a, args...)
+			return a.conn.Connect(context.Background(), args...)
 		},
 	}
 	rootCmd.AddCommand(cmd)

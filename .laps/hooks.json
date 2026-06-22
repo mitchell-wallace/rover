@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": [
+    {
+      "title": "rally:laps-done",
+      "description": "Records lap completion and prompts for wrapup",
+      "command": "done",
+      "when": "after",
+      "run": ".laps/hooks/rally/laps-done-hook.sh \"$id\"",
+      "passback": true
+    },
+    {
+      "title": "rally:laps-handoff",
+      "description": "Signals handoff state and prompts for wrapup",
+      "command": "handoff",
+      "when": "before",
+      "run": ".laps/hooks/rally/laps-handoff-hook.sh $args",
+      "passback": true
+    },
+    {
+      "title": "rally:laps-wrapup",
+      "description": "Completes or hands off the current run",
+      "command": "wrapup",
+      "when": "before",
+      "run": ".laps/hooks/rally/laps-wrapup-hook.sh $args",
+      "passback": true
+    }
+  ]
+}

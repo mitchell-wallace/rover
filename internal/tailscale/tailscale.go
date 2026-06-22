@@ -140,7 +140,11 @@ func PingPeer(p *Peer) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "tailscale", "ping", "--timeout=3s", "--c", "1", p.Target()).Run() == nil
+	return exec.CommandContext(ctx, "tailscale", pingPeerArgs(p.Target())...).Run() == nil
+}
+
+func pingPeerArgs(target string) []string {
+	return []string{"ping", "--timeout=3s", "--c", "1", "--until-direct=false", target}
 }
 
 // Connect opens an interactive Tailscale SSH session to user@host's peer.

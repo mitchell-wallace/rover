@@ -32,7 +32,7 @@ the VM has been deleted or manually logged out of Tailscale.`,
 				return err
 			}
 			if dryRun {
-				_, err := doTailscaleCleanup(a, deleteOnline, true)
+				_, err := a.vm.CleanupTailscaleDevices(deleteOnline, true)
 				return err
 			}
 			if !assumeYes {
@@ -48,7 +48,7 @@ the VM has been deleted or manually logged out of Tailscale.`,
 					return fmt.Errorf("aborted")
 				}
 			}
-			_, err = doTailscaleCleanup(a, deleteOnline, false)
+			_, err = a.vm.CleanupTailscaleDevices(deleteOnline, false)
 			return err
 		},
 	}

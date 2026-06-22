@@ -1,14 +1,19 @@
 // Package cmd wires up Rover's Cobra commands. Interactive mode (bare `rover`)
-// and the non-interactive subcommands call the same service functions in
-// internal/azure and internal/ansible, so the two paths stay at parity.
+// and the non-interactive subcommands call the same service methods, so the
+// two paths stay at parity.
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
+	"github.com/mitchell-wallace/rover/internal/connectivity"
+	"github.com/mitchell-wallace/rover/internal/provision"
+	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/vm"
 	"github.com/spf13/cobra"
 
 	assets "github.com/mitchell-wallace/rover"
@@ -42,25 +47,13 @@ func Execute(v string) error {
 	return nil
 }
 
-// azureProvider is the subset of Azure operations used by command handlers.
-// The concrete *azure.Client satisfies this interface; tests provide mocks.
-type azureProvider interface {
-	Up(family, size string) (azure.Info, error)
-	Down(del, yes bool) (azure.Info, error)
-	Status() (azure.Info, error)
-	ResizeDisk(gb int) (azure.Info, error)
-	Restart() (azure.Info, error)
-	Info() (azure.Info, error)
-	SSH(extra ...string) error
-	SetPublicSSH(allowed bool) error
-	RunCommand(script string) error
-}
-
-// appContext bundles the loaded state and a ready Azure client.
+// appContext is the command-layer composition root.
 type appContext struct {
-	state    *config.State
-	azure    azureProvider
-	assetDir string
+	state     *config.State
+	assetDir  string
+	vm        *vm.Service
+	conn      *connectivity.Service
+	provision *provision.Service
 }
 
 // loadStateOnly loads state without materializing assets (for commands that
@@ -79,9 +72,25 @@ func loadContext() (*appContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("materialize assets: %w", err)
 	}
+	az := azure.New(st, dir)
+	tsClient := tailscale.NewClient()
+	conn := connectivity.New(st, az, tsClient)
+	prov := provision.New(st, az, tsClient, dir)
+	vmSvc := &vm.Service{
+		State:     st,
+		Azure:     az,
+		TS:        tsClient,
+		Conn:      conn,
+		Provision: prov,
+	}
+	conn.Restart = func(ctx context.Context) error {
+		return vmSvc.Restart(ctx)
+	}
 	return &appContext{
-		state:    st,
-		azure:    azure.New(st, dir),
-		assetDir: dir,
+		state:     st,
+		assetDir:  dir,
+		vm:        vmSvc,
+		conn:      conn,
+		provision: prov,
 	}, nil
 }

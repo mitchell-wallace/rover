@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/charmbracelet/huh"
@@ -10,7 +11,7 @@ import (
 )
 
 // runInteractive drives the menu shown for a bare `rover` invocation. Every
-// branch calls the same do* functions as the non-interactive subcommands.
+// branch calls the same service methods as the non-interactive subcommands.
 func runInteractive() error {
 	if !ui.Interactive() {
 		// No TTY: fall back to a status summary rather than blocking on a prompt.
@@ -18,7 +19,7 @@ func runInteractive() error {
 		if err != nil {
 			return err
 		}
-		return doStatus(a)
+		return a.vm.Status()
 	}
 
 	// First run (no state file yet): walk through guided setup before the menu.
@@ -69,7 +70,7 @@ func runInteractive() error {
 
 		switch action {
 		case "status":
-			err = doStatus(a)
+			err = a.vm.Status()
 		case "up":
 			family := a.state.Fam()
 			size := a.state.Size
@@ -92,14 +93,14 @@ func runInteractive() error {
 					Run()
 			}
 			if err == nil {
-				err = doUp(a, family, size, false, false)
+				err = a.vm.Up(context.Background(), family, size, false, false)
 			}
 		case "provision":
-			err = doProvision(a)
+			err = a.provision.Run(context.Background())
 		case "ssh":
-			err = doSSH(a)
+			err = a.vm.SSH()
 		case "connect":
-			err = doConnect(a)
+			err = a.conn.Connect(context.Background())
 		case "command":
 			var cmdStr string
 			if err = huh.NewInput().
@@ -107,12 +108,12 @@ func runInteractive() error {
 				Value(&cmdStr).
 				Run(); err == nil && cmdStr != "" {
 				fmt.Println()
-				err = doCommand(a, []string{cmdStr})
+				err = a.conn.RunCommand(context.Background(), []string{cmdStr})
 			}
 		case "down":
-			err = doDown(a, false, false)
+			err = a.vm.Down(context.Background(), false, false)
 		case "delete":
-			err = doDown(a, true, false)
+			err = a.vm.Down(context.Background(), true, false)
 		case "config":
 			err = editConfig(a.state)
 		case "init":
