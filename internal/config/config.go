@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mitchell-wallace/rover/internal/locale"
 )
 
 // Connection holds the last known reachability info for the VM. It is a cache
@@ -40,6 +42,10 @@ type State struct {
 	SSHPrivateKey  string     `json:"sshPrivateKey,omitempty"`
 	Connection     Connection `json:"connection,omitempty"`
 	AnsibleApplied bool       `json:"ansibleApplied"`
+
+	// Locale and timezone detected from the host at provision time.
+	Timezone string `json:"timezone,omitempty"`
+	Locale   string `json:"locale,omitempty"`
 
 	// Tailscale (optional). The auth key is never stored here — it is read from
 	// the TS_AUTHKEY environment variable at provision time or generated via OAuth.
@@ -79,6 +85,24 @@ func (s *State) Fam() string {
 		return "burstable"
 	}
 	return s.Family
+}
+
+// EffectiveTimezone returns the configured IANA timezone, auto-detecting from
+// the host if not yet persisted.
+func (s *State) EffectiveTimezone() string {
+	if s.Timezone != "" {
+		return s.Timezone
+	}
+	return locale.EffectiveTimezone()
+}
+
+// EffectiveLocale returns the configured locale string, auto-detecting from the
+// host if not yet persisted.
+func (s *State) EffectiveLocale() string {
+	if s.Locale != "" {
+		return s.Locale
+	}
+	return locale.EffectiveLocale()
 }
 
 // TSHostname returns the Tailscale node name, defaulting to the VM name.

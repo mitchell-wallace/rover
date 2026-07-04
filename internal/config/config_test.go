@@ -160,6 +160,72 @@ func TestValidateSSHPort(t *testing.T) {
 	}
 }
 
+func TestDefaultTimezoneLocaleEmpty(t *testing.T) {
+	st := Default()
+	if st.Timezone != "" {
+		t.Errorf("Default().Timezone = %q, want empty (auto-detect)", st.Timezone)
+	}
+	if st.Locale != "" {
+		t.Errorf("Default().Locale = %q, want empty (auto-detect)", st.Locale)
+	}
+}
+
+func TestTimezoneLocaleRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	st := Default()
+	st.Timezone = "America/New_York"
+	st.Locale = "en_US.UTF-8"
+	if err := st.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Timezone != "America/New_York" {
+		t.Errorf("Timezone = %q, want America/New_York", got.Timezone)
+	}
+	if got.Locale != "en_US.UTF-8" {
+		t.Errorf("Locale = %q, want en_US.UTF-8", got.Locale)
+	}
+}
+
+func TestTimezoneGetterUsesStored(t *testing.T) {
+	st := &State{Timezone: "Europe/London"}
+	if got := st.EffectiveTimezone(); got != "Europe/London" {
+		t.Errorf("EffectiveTimezone() = %q, want Europe/London", got)
+	}
+}
+
+func TestTimezoneGetterFallsBackToDetection(t *testing.T) {
+	t.Setenv("TZ", "Asia/Tokyo")
+	st := &State{}
+	got := st.EffectiveTimezone()
+	if got != "Asia/Tokyo" {
+		t.Errorf("EffectiveTimezone() = %q, want Asia/Tokyo", got)
+	}
+}
+
+func TestLocaleGetterUsesStored(t *testing.T) {
+	st := &State{Locale: "fr_FR.UTF-8"}
+	if got := st.EffectiveLocale(); got != "fr_FR.UTF-8" {
+		t.Errorf("EffectiveLocale() = %q, want fr_FR.UTF-8", got)
+	}
+}
+
+func TestLocaleGetterFallsBackToDetection(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LANG", "de_DE.UTF-8")
+	st := &State{}
+	got := st.EffectiveLocale()
+	if got != "de_DE.UTF-8" {
+		t.Errorf("EffectiveLocale() = %q, want de_DE.UTF-8", got)
+	}
+}
+
 func TestPrivateKeyPathDerivation(t *testing.T) {
 	s := &State{SSHPublicKey: "/home/u/.ssh/id_ed25519.pub"}
 	if got := s.PrivateKeyPath(); got != "/home/u/.ssh/id_ed25519" {

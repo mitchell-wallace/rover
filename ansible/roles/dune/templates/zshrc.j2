@@ -1,5 +1,9 @@
 # Managed by Rover (Ansible). Edits may be overwritten on re-provision.
 
+# Locale from the host system at provision time.
+export LANG={{ rover_locale }}
+export LC_ALL={{ rover_locale }}
+
 # If the connecting terminal's terminfo entry is missing on this VM (e.g. a
 # terminal that ships its own entry, like Ghostty on a fresh ncurses), fall
 # back to a widely-available one. Without this, line editing (Backspace,

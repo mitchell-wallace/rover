@@ -33,6 +33,8 @@ type Service struct {
 	AssetDir string
 	Ansible  func(ansible.Params) error
 	Wait     SSHWaiter
+	Timezone string
+	Locale   string
 }
 
 // New constructs a Service with production defaults for injectable seams.
@@ -44,6 +46,8 @@ func New(st *config.State, az AzureProvisioner, ts tailscale.Client, assetDir st
 		AssetDir: assetDir,
 		Ansible:  ansible.Provision,
 		Wait:     defaultSSHWait,
+		Timezone: st.EffectiveTimezone(),
+		Locale:   st.EffectiveLocale(),
 	}
 }
 
@@ -110,12 +114,19 @@ func (s *Service) Run(ctx context.Context) error {
 			"ansible_port":       strconv.Itoa(s.State.SSHPort()),
 			"tailscale_hostname": s.State.TSHostname(),
 			"tailscale_tags":     s.State.TSTags(),
+			"rover_timezone":     s.Timezone,
+			"rover_locale":       s.Locale,
 		},
 	})
 	if err != nil {
 		return err
 	}
 	s.State.AnsibleApplied = true
+	s.State.Timezone = s.Timezone
+	s.State.Locale = s.Locale
+	if err := s.State.Save(); err != nil {
+		ui.Warn("Failed to save timezone/locale to state: %v", err)
+	}
 	if err := stateutil.SyncConnection(s.State, info); err != nil {
 		return err
 	}

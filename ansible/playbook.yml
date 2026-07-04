@@ -24,4 +24,5 @@
       ansible.builtin.setup:
   roles:
     - dune
+    - locale
     - tailscale

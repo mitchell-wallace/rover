@@ -271,6 +271,32 @@ const (
 	lineVerifyFailed  = "[warn] Tailscale verification failed: peer offline, not found, or unreachable — keeping public SSH OPEN on port 2222."
 )
 
+func TestRunPassesTimezoneAndLocale(t *testing.T) {
+	unsetEnv(t, "TS_AUTHKEY")
+	s, runner, _ := newTestService(t, &fakeAzure{info: runningInfo()}, nil)
+	s.Timezone = "America/New_York"
+	s.Locale = "en_US.UTF-8"
+
+	requireNoErr(t, s.Run(context.Background()))
+
+	if len(runner.params) != 1 {
+		t.Fatalf("Ansible runs = %d, want 1", len(runner.params))
+	}
+	extra := runner.params[0].ExtraVars
+	if extra["rover_timezone"] != "America/New_York" {
+		t.Errorf("rover_timezone = %q, want America/New_York", extra["rover_timezone"])
+	}
+	if extra["rover_locale"] != "en_US.UTF-8" {
+		t.Errorf("rover_locale = %q, want en_US.UTF-8", extra["rover_locale"])
+	}
+	if s.State.Timezone != "America/New_York" {
+		t.Errorf("State.Timezone = %q, want America/New_York", s.State.Timezone)
+	}
+	if s.State.Locale != "en_US.UTF-8" {
+		t.Errorf("State.Locale = %q, want en_US.UTF-8", s.State.Locale)
+	}
+}
+
 func TestRunPostProvisionVerifyAndLockdown(t *testing.T) {
 	tests := []struct {
 		name             string
