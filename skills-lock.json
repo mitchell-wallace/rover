@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "nitpicker": {
+      "source": "mitchell-wallace/skills",
+      "sourceType": "github",
+      "skillPath": "nitpicker/SKILL.md",
+      "computedHash": "1ae16f3c7034027df7f71533f990caf758b6e1941158109def6d4f789792ad6d"
+    },
+    "pathfinder": {
+      "source": "mitchell-wallace/skills",
+      "sourceType": "github",
+      "skillPath": "pathfinder/SKILL.md",
+      "computedHash": "dee50229bce5ec974778ff005e06776bef682cecc73e8cc023a793b587acc840"
+    }
+  }
+}
