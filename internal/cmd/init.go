@@ -39,6 +39,11 @@ func doInit(st *config.State) error {
 	fmt.Println("Welcome to Rover — let's set up your config.")
 	fmt.Println("Press enter to accept the defaults; you can change anything later with 'rover config --edit'.")
 	fmt.Println()
+	azure := st.AzureSettings()
+	defaultAzureDir, err := config.DefaultAzureConfigDir()
+	if err != nil {
+		return err
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -66,9 +71,17 @@ func doInit(st *config.State) error {
 				Description("Used to log in. If it doesn't exist yet, Rover can generate a key pair next.").
 				Value(&st.SSHPublicKey),
 			huh.NewInput().
+				Title("Azure config directory (blank = Rover default)").
+				Description("Rover's isolated az credentials live here. Default: "+defaultAzureDir).
+				Value(&azure.ConfigDir),
+			huh.NewInput().
 				Title("Azure subscription (blank = az default)").
-				Description("Pin a subscription, or leave blank to use your active 'az' login.").
-				Value(&st.Subscription),
+				Description("Pin a subscription within Rover's Azure login.").
+				Value(&azure.Subscription),
+			huh.NewInput().
+				Title("Azure tenant (blank = az default)").
+				Description("Optionally scope 'rover login' to a tenant.").
+				Value(&azure.Tenant),
 		),
 	)
 	if err := form.Run(); err != nil {
@@ -96,7 +109,8 @@ func doInit(st *config.State) error {
 	}
 
 	fmt.Println("\nNext steps:")
-	fmt.Println("  rover doctor      # verify prerequisites (az login, Bicep, Ansible, ...)")
+	fmt.Println("  rover login       # authenticate Rover's isolated Azure context")
+	fmt.Println("  rover doctor      # verify prerequisites (Azure login, Bicep, Ansible, ...)")
 	fmt.Println("  rover up small    # provision the VM")
 	return nil
 }

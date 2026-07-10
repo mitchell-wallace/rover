@@ -1,3 +1,4 @@
+// Package locale detects and validates host locale and timezone settings.
 package locale
 
 import (
@@ -6,6 +7,8 @@ import (
 	"strings"
 )
 
+// EffectiveTimezone returns the host's configured IANA timezone, falling back
+// to UTC when it cannot be detected.
 func EffectiveTimezone() string {
 	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
 		return tz
@@ -29,6 +32,8 @@ func EffectiveTimezone() string {
 	return "UTC"
 }
 
+// EffectiveLocale returns the host's configured locale, falling back to
+// C.UTF-8 when no locale environment variable is set.
 func EffectiveLocale() string {
 	if loc := strings.TrimSpace(os.Getenv("LC_ALL")); loc != "" {
 		return loc
@@ -42,6 +47,8 @@ func EffectiveLocale() string {
 	return "C.UTF-8"
 }
 
+// ValidateTimezone rejects empty, absolute, or parent-traversing timezone
+// names.
 func ValidateTimezone(tz string) error {
 	if tz == "" {
 		return fmt.Errorf("timezone must not be empty")
@@ -52,6 +59,8 @@ func ValidateTimezone(tz string) error {
 	return nil
 }
 
+// ValidateLocale checks that loc is a usable locale with an explicit encoding,
+// or one of the encoding-independent C/POSIX locales.
 func ValidateLocale(loc string) error {
 	if loc == "" {
 		return fmt.Errorf("locale must not be empty")

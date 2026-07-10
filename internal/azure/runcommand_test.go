@@ -34,7 +34,14 @@ func sequenceRunner(responses ...runnerResp) (runCommandRunner, func() int) {
 
 func newTestClient(t *testing.T) *Client {
 	t.Helper()
-	return &Client{state: &config.State{ResourceGroup: "test-rg", VMName: "test-vm"}, assetDir: t.TempDir()}
+	return &Client{
+		state: &config.State{
+			Azure:         &config.AzureConfig{ConfigDir: t.TempDir()},
+			ResourceGroup: "test-rg",
+			VMName:        "test-vm",
+		},
+		assetDir: t.TempDir(),
+	}
 }
 
 func fastPolicy(maxAttempts int) runCommandPolicy {
@@ -88,6 +95,38 @@ func TestRunCommandSuccessFirstTry(t *testing.T) {
 	}
 	if got := calls(); got != 1 {
 		t.Errorf("expected 1 invocation, got %d", got)
+	}
+}
+
+func TestRunCommandUsesIsolatedAzureEnvironment(t *testing.T) {
+	c := newTestClient(t)
+	var gotEnv []string
+	runner := func(_ context.Context, env, _ []string) (string, string, error) {
+		gotEnv = append([]string(nil), env...)
+		return "", "", nil
+	}
+	if err := c.runCommand(context.Background(), "echo hi", fastPolicy(1), runner); err != nil {
+		t.Fatalf("runCommand: %v", err)
+	}
+	want := "AZURE_CONFIG_DIR=" + c.state.Azure.ConfigDir
+	if !envContains(gotEnv, want) {
+		t.Errorf("Run Command environment missing %q", want)
+	}
+}
+
+func TestBuildRunCommandArgsUsesNestedSubscription(t *testing.T) {
+	c := newTestClient(t)
+	c.state.Azure.Subscription = "nested-sub"
+	args := c.buildRunCommandArgs("echo hi")
+	found := false
+	for i := range len(args) - 1 {
+		if args[i] == "--subscription" && args[i+1] == "nested-sub" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("buildRunCommandArgs() missing nested subscription: %v", args)
 	}
 }
 

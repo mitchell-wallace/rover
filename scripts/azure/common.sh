@@ -45,7 +45,7 @@ az_init() {
     az_args=(--subscription "${ROVER_SUBSCRIPTION}")
   fi
   if ! az account show "${az_args[@]}" -o none 2>/dev/null; then
-    die "not logged in to Azure. Run 'az login' (and 'az account set --subscription <id>')."
+    die "not logged in to Rover's Azure context. Run 'rover login'."
   fi
 }
 

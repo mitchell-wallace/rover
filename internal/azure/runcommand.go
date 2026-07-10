@@ -72,7 +72,10 @@ var defaultRunCommandRunner runCommandRunner = func(ctx context.Context, env, ar
 }
 
 func (c *Client) runCommand(ctx context.Context, script string, p runCommandPolicy, runner runCommandRunner) error {
-	env := c.state.Env()
+	env, err := c.commandEnv()
+	if err != nil {
+		return err
+	}
 	args := c.buildRunCommandArgs(script)
 
 	var (
@@ -128,8 +131,8 @@ func (c *Client) buildRunCommandArgs(script string) []string {
 		"--scripts", script,
 		"-o", "none",
 	}
-	if c.state.Subscription != "" {
-		args = append(args, "--subscription", c.state.Subscription)
+	if subscription := c.state.AzureSubscription(); subscription != "" {
+		args = append(args, "--subscription", subscription)
 	}
 	return args
 }
