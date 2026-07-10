@@ -18,7 +18,7 @@ type AzureLifecycle interface {
 	Status() (azure.Info, error)
 	Restart() (azure.Info, error)
 	ResizeDisk(gb int) (azure.Info, error)
-	SSH(extra ...string) error
+	SSH(tmux bool, extra ...string) error
 	RunCommand(ctx context.Context, script string) error
 }
 
@@ -29,6 +29,11 @@ type connRestorer interface {
 
 type provisioner interface {
 	Run(ctx context.Context) error
+}
+
+// SSHOptions controls one public SSH invocation.
+type SSHOptions struct {
+	NoTmux bool
 }
 
 // Service orchestrates VM lifecycle operations and composes connectivity and

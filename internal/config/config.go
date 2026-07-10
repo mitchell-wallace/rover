@@ -36,6 +36,11 @@ type AzureConfig struct {
 	Tenant       string `json:"tenant,omitempty"`
 }
 
+// SSHConfig controls how Rover opens interactive public SSH sessions.
+type SSHConfig struct {
+	Tmux bool `json:"tmux"`
+}
+
 // State is the persisted Rover configuration + last-known runtime state.
 type State struct {
 	// Subscription is the pre-Azure-section location retained only so state
@@ -43,6 +48,7 @@ type State struct {
 	// it to Azure.Subscription.
 	Subscription   string       `json:"subscription,omitempty"`
 	Azure          *AzureConfig `json:"azure,omitempty"`
+	SSH            *SSHConfig   `json:"ssh,omitempty"`
 	ResourceGroup  string       `json:"resourceGroup"`
 	Location       string       `json:"location"`
 	VMName         string       `json:"vmName"`
@@ -89,6 +95,22 @@ func (s *State) SSHPort() int {
 		return DefaultSSHPort
 	}
 	return s.SSHListenPort
+}
+
+// SSHTmux reports whether interactive public SSH sessions should attach to
+// Rover's tmux session. A missing section means enabled so older state files
+// adopt the new default without a migration.
+func (s *State) SSHTmux() bool {
+	return s.SSH == nil || s.SSH.Tmux
+}
+
+// SSHSettings returns the mutable SSH section, creating it with defaults for
+// state files written before the section existed.
+func (s *State) SSHSettings() *SSHConfig {
+	if s.SSH == nil {
+		s.SSH = &SSHConfig{Tmux: true}
+	}
+	return s.SSH
 }
 
 // Fam returns the configured compute family, defaulting to burstable so state
@@ -184,6 +206,7 @@ func Default() *State {
 	}
 	return &State{
 		Azure:         &AzureConfig{},
+		SSH:           &SSHConfig{Tmux: true},
 		ResourceGroup: "rover-rg",
 		Location:      "australiaeast",
 		VMName:        "rover-vm",

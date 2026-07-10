@@ -151,9 +151,13 @@ func (c *Client) Info() (Info, error) {
 	return c.runJSON("ip")
 }
 
-// SSH opens an interactive SSH session, passing through any extra args.
-func (c *Client) SSH(extra ...string) error {
-	return c.stream("ssh", extra...)
+// SSH opens an SSH session, passing through any remote command arguments.
+func (c *Client) SSH(tmux bool, extra ...string) error {
+	mode := "--no-tmux"
+	if tmux {
+		mode = "--tmux"
+	}
+	return c.stream("ssh", append([]string{mode}, extra...)...)
 }
 
 // SetPublicSSH enables or disables public SSH access on the NSG.

@@ -247,11 +247,19 @@ and is fully idempotent (re-run any time).
 ## Connecting to the VM
 
 ```sh
-rover ssh                       # interactive shell (public IP + SSH key)
-rover ssh -- uname -a           # run a one-off remote command
+rover ssh                       # attach/create the "rover" tmux session
+rover ssh --no-tmux             # opt out once and open a plain shell
+rover ssh -- uname -a           # run a one-off command (never uses tmux)
 rover connect                   # connect over Tailscale (see below)
 rover status                    # power state + connection info
 ```
+
+Interactive `rover ssh` sessions run `tmux new-session -A -s rover`, so a
+disconnect does not discard the remote terminal. The interactive menu uses the
+same default. Tmux is installed by `rover provision`; if it is missing on an
+older or unprovisioned VM, Rover prints one warning and opens a plain shell.
+To opt out persistently, disable **Attach interactive SSH sessions to tmux** in
+`rover config --edit`, which saves `"ssh": {"tmux": false}` in Rover's config.
 
 ## Tailscale (optional)
 

@@ -336,11 +336,11 @@
       "title": "rover ssh attaches to tmux session on connect by default",
       "description": "Context: read the `rover ssh` path (internal/, scripts/azure/ssh or equivalent) and ansible/roles/dune/ (what's installed on the VM).\n\nGoal: `rover ssh` should land the user in a tmux session on the remote VM by default (new session or attach if one exists — `tmux new-session -A -s rover` semantics), instead of a bare shell.\n\nRequirements:\n- Default ON; opt out per-invocation with `--no-tmux` and persistently via a config field (e.g. ssh.tmux = false). Interactive menu path behaves the same as CLI (parity invariant).\n- Ensure tmux is provisioned on the VM (check ansible roles; add it if missing).\n- Handle the edge where tmux is missing on the remote: fall back to plain shell with a one-line warning, not a hard failure.\n- Any extra args/command passthrough that `rover ssh` supports today must keep working (a command execution should NOT be wrapped in tmux).\n\nDeliverables: implementation, unit tests where the seam allows, README update.\nGates (all must pass): just build, just test, just lint, just fmt (no diff).\nDo not provision real VMs.",
       "assignee": "senior",
-      "isDone": false,
+      "isDone": true,
       "order": 131072,
       "createdAt": "2026-07-10T07:23:46.970052508Z",
-      "updatedAt": "2026-07-10T07:23:46.970052508Z",
-      "completedAt": null
+      "updatedAt": "2026-07-10T07:44:27.702668576Z",
+      "completedAt": "2026-07-10T07:44:27.702668576Z"
     },
     {
       "kind": "lap",

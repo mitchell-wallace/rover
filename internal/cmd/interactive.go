@@ -8,6 +8,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/ui"
+	"github.com/mitchell-wallace/rover/internal/vm"
 )
 
 // runInteractive drives the menu shown for a bare `rover` invocation. Every
@@ -110,7 +111,7 @@ func runInteractive() error {
 		case "provision":
 			err = a.provision.Run(context.Background())
 		case "ssh":
-			err = a.vm.SSH()
+			err = a.vm.SSH(vm.SSHOptions{})
 		case "connect":
 			err = a.conn.Connect(context.Background())
 		case "command":

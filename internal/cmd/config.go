@@ -68,6 +68,7 @@ func printConfig(st *config.State) {
 	fmt.Printf("  disk:            %d GiB\n", st.DiskGB())
 	fmt.Printf("  admin username:  %s\n", st.AdminUsername)
 	fmt.Printf("  ssh port:        %d\n", st.SSHPort())
+	fmt.Printf("  ssh tmux:        %v\n", st.SSHTmux())
 	fmt.Printf("  ssh public key:  %s\n", st.SSHPublicKey)
 	fmt.Printf("  ssh private key: %s\n", st.PrivateKeyPath())
 	fmt.Printf("  ansible applied: %v\n", st.AnsibleApplied)
@@ -86,6 +87,7 @@ func editConfig(st *config.State) error {
 	// huh inputs bind to strings; round-trip the SSH port through one.
 	portStr := strconv.Itoa(st.SSHPort())
 	azure := st.AzureSettings()
+	ssh := st.SSHSettings()
 	defaultAzureDir, err := config.DefaultAzureConfigDir()
 	if err != nil {
 		return err
@@ -105,6 +107,7 @@ func editConfig(st *config.State) error {
 		huh.NewInput().Title("Admin username").Value(&st.AdminUsername).
 			Validate(config.ValidateAdminUsername),
 		huh.NewInput().Title("Public SSH port").Value(&portStr).Validate(validatePortStr),
+		huh.NewConfirm().Title("Attach interactive SSH sessions to tmux").Value(&ssh.Tmux),
 		huh.NewInput().Title("SSH public key path").Value(&st.SSHPublicKey),
 		huh.NewInput().Title("Tailscale hostname (blank = VM name)").Value(&st.TailscaleHostname),
 		huh.NewInput().Title("Tailscale tags").Value(&st.TailscaleTags),

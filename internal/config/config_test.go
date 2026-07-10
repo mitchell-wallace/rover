@@ -68,6 +68,9 @@ func TestDefaultStateWellFormed(t *testing.T) {
 	if err := ValidateAdminUsername(st.AdminUsername); err != nil {
 		t.Errorf("Default AdminUsername invalid: %v", err)
 	}
+	if !st.SSHTmux() {
+		t.Error("SSHTmux() = false, want default enabled")
+	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -127,6 +130,26 @@ func TestLoadMigratesLegacySubscription(t *testing.T) {
 	}
 	if st.Azure == nil || st.Azure.Subscription != "legacy-sub" {
 		t.Errorf("Azure section not populated from legacy state: %+v", st.Azure)
+	}
+	if !st.SSHTmux() {
+		t.Error("legacy state should default ssh.tmux to true")
+	}
+}
+
+func TestSSHTmuxOptOutRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st := Default()
+	st.SSHSettings().Tmux = false
+	if err := st.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.SSHTmux() {
+		t.Error("SSHTmux() = true after persisted opt-out")
 	}
 }
 
