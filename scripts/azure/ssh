@@ -35,6 +35,7 @@ ssh_opts=(-p "${ROVER_SSH_PORT}" -o StrictHostKeyChecking=accept-new)
 # intercepted by tmux. The remote guard lets unprovisioned/older VMs fall back
 # to a login shell instead of making SSH fail when tmux is absent.
 if ${use_tmux} && [ "$#" -eq 0 ]; then
+  # shellcheck disable=SC2016  # ${SHELL} must expand on the remote host, not here.
   tmux_command='if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s rover; else printf "%s\n" "[warn] tmux is not installed; falling back to a plain shell." >&2; exec "${SHELL:-/bin/sh}" -l; fi'
   exec ssh "${ssh_opts[@]}" -t "${target}" "${tmux_command}"
 fi
