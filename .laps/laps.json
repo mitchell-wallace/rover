@@ -348,11 +348,11 @@
       "title": "Verify rover changes: evidence report",
       "description": "Verify the two preceding laps (azure credential isolation; tmux-on-ssh) against their stated requirements. Read the diffs (git log/diff on dev), run all gates (just build, just test, just lint), and exercise what can be exercised without Azure credentials: config resolution with a temp HOME, AZURE_CONFIG_DIR env construction, ssh command assembly (dry inspection of the command string if there's a seam). Check CLI/interactive-menu parity for the new surfaces. Write evidence to tmp/verify-2026-07-10.md (create tmp/, gitignored is fine): what you ran, what you observed, requirement-by-requirement pass/fail, and any gaps. Do not fix things yourself; report.",
       "assignee": "verify",
-      "isDone": false,
+      "isDone": true,
       "order": 196608,
       "createdAt": "2026-07-10T07:23:46.98888778Z",
-      "updatedAt": "2026-07-10T07:23:46.98888778Z",
-      "completedAt": null
+      "updatedAt": "2026-07-10T07:48:28.539897298Z",
+      "completedAt": "2026-07-10T07:48:28.539897298Z"
     }
   ]
 }

@@ -7,3 +7,6 @@
 {"ts":"2026-07-10T07:38:21Z","event":"claimed","cmd":"claim","file":"laps.json","lap":"rove-580a","title":"rover ssh attaches to tmux session on connect by default","assignee":"senior","scope":"root","detail":{},"session":""}
 {"ts":"2026-07-10T07:44:27Z","event":"completed","cmd":"done","file":"laps.json","lap":"rove-580a","title":"rover ssh attaches to tmux session on connect by default","assignee":"senior","scope":"root","detail":{},"session":""}
 {"ts":"2026-07-10T07:44:27Z","event":"unclaimed","cmd":"done","file":"laps.json","lap":"rove-580a","title":"rover ssh attaches to tmux session on connect by default","assignee":"senior","scope":"root","detail":{"reason":"completed"},"session":""}
+{"ts":"2026-07-10T07:45:58Z","event":"claimed","cmd":"claim","file":"laps.json","lap":"rove-3e3e","title":"Verify rover changes: evidence report","assignee":"verify","scope":"root","detail":{},"session":""}
+{"ts":"2026-07-10T07:48:28Z","event":"completed","cmd":"done","file":"laps.json","lap":"rove-3e3e","title":"Verify rover changes: evidence report","assignee":"verify","scope":"root","detail":{},"session":""}
+{"ts":"2026-07-10T07:48:28Z","event":"unclaimed","cmd":"done","file":"laps.json","lap":"rove-3e3e","title":"Verify rover changes: evidence report","assignee":"verify","scope":"root","detail":{"reason":"completed"},"session":""}
