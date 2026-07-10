@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# rover ssh [-- extra ssh args...]
+# rover ssh [--tmux|--no-tmux] [-- remote command...]
 #
-# Opens an interactive SSH session to the Rover VM using the configured key.
+# Opens an SSH session to the Rover VM using the configured key. Interactive
+# sessions attach to the shared Rover tmux session by default.
 set -euo pipefail
 # shellcheck source=scripts/azure/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+use_tmux=true
+case "${1:-}" in
+  --tmux) shift ;;
+  --no-tmux) use_tmux=false; shift ;;
+esac
 
 az_init
 
@@ -23,5 +30,13 @@ log "Connecting to ${target}..."
 
 ssh_opts=(-p "${ROVER_SSH_PORT}" -o StrictHostKeyChecking=accept-new)
 [ -f "${ROVER_SSH_KEY}" ] && ssh_opts+=(-i "${ROVER_SSH_KEY}")
+
+# A supplied command keeps the historical passthrough behavior and must not be
+# intercepted by tmux. The remote guard lets unprovisioned/older VMs fall back
+# to a login shell instead of making SSH fail when tmux is absent.
+if ${use_tmux} && [ "$#" -eq 0 ]; then
+  tmux_command='if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s rover; else printf "%s\n" "[warn] tmux is not installed; falling back to a plain shell." >&2; exec "${SHELL:-/bin/sh}" -l; fi'
+  exec ssh "${ssh_opts[@]}" -t "${target}" "${tmux_command}"
+fi
 
 exec ssh "${ssh_opts[@]}" "${target}" "$@"

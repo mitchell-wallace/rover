@@ -28,8 +28,27 @@ verbs: [
         invocation: edit
         shortcut: e
         key: ctrl-e
-        apply_to: text_file
-        execution: "$EDITOR {file}"
+        apply_to: file
+        execution: "micro {file}"
+        leave_broot: false
+    }
+
+    # Override Broot's built-in open actions for files. Plain enter and mouse
+    # double-click use open_stay; alt-enter and `ol` use open_leave.
+    {
+        invocation: open_stay
+        key: enter
+        apply_to: file
+        execution: "micro {file}"
+        leave_broot: false
+    }
+
+    {
+        invocation: open_leave
+        shortcut: ol
+        key: alt-enter
+        apply_to: file
+        execution: "micro {file}"
         leave_broot: false
     }
 
@@ -52,7 +71,7 @@ verbs: [
     #  the current directory or below
     {
         invocation: create {subpath}
-        execution: "$EDITOR {directory}/{subpath}"
+        execution: "micro {directory}/{subpath}"
         leave_broot: false
     }
 
@@ -158,4 +177,3 @@ verbs: [
     #     leave_broot: false
     # }
 ]
-

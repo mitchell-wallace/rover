@@ -1,96 +1,41 @@
-schema_version = 2
-run_hooks_on_autocommit = false
-
-# Bare-alias models. Used when a route entry is a plain harness alias
-# (e.g. "claude" / "cc") with no named model attached. Also the fallback
-# when a [harness.<n>.models] lookup misses.
-[defaults]
-claude_model      = 'claude-opus-4-8'
-codex_model       = 'gpt-5.5'
-gemini_model      = 'gemini-3.1-pro-preview'
-opencode_model    = 'zai-coding-plan/glm-5.2'
-antigravity_model = 'Gemini 3.5 Flash (High)'
-
-[laps]
-
-[fallback]
-
-[reliability]
-freeze_threshold_secs = 120
-retry_budget          = 5
-
-# Named model shortcuts — referenced from [routes] or --agent as
-# `<alias>:<name>`, e.g. `cc:opus`, `op:zai`. Model names must be
-# non-numeric (rally rejects `4` to keep quota parsing unambiguous).
-
-[harness.cc.models]
-opus   = 'claude-opus-4-8'
-# opus   = 'claude-opus-4-8-disabled' # invalid slug to disable use of expensive model temporarily
-sonnet = 'claude-sonnet-4-6'
-haiku  = 'claude-haiku-4-5'
-
-[harness.cx.models]
-# review codex while doing big work elsewhere
-g55 = 'gpt-5.5'
-g54  = 'gpt-5.4'
-mini = 'gpt-5.4-mini'
-g53 = 'gpt-5.3-codex'
-
-[harness.ge.models]
-pro   = 'gemini-3.1-pro-preview'
-flash = 'gemini-3-flash-preview'
-
-[harness.op.models]
-zai  = 'zai-coding-plan/glm-5.2'
-zgo = 'XXopencode-go/glm-5.1'
-kimi = 'XXopencode-go/kimi-k2.7-code'
-mini = 'XXopencode-go/minimax-m3'
-ds = 'XXopencode-go/deepseek-v4-pro'
-dsf = 'opencode/deepseek-v4-flash-free'
-qwen = 'XXopencode-go/qwen3.7-max'
-
-# agy 1.0.0 has no model CLI flag, so rally
-# patches ~/.gemini/antigravity-cli/settings.json per-run.
-[harness.ag.models]
-flash = 'Gemini 3.5 Flash (High)'
-pro = 'Gemini 3.1 Pro (High)'
-opus = 'Claude Opus 4.6 (Thinking)'
-sonnet = 'Claude Sonnet 4.6 (Thinking)'
-
-# Per-role fallback patterns.
+# Rally repo-level config — OVERRIDES ONLY.
 #
-# Quota semantics (read README §[routes] before changing):
-#   no quota   stay on this entry until it FAILS, then advance
-#   :N         run exactly N consecutive iterations, then advance
-#   :N-M       prefer rotating after N; allow up to M if peers are exhausted/frozen
+# Your main rally configuration lives in the user-level file:
+#   ~/.config/rally/config.toml   (or $XDG_CONFIG_HOME/rally/config.toml)
 #
-# A route is a list. Rally walks it left-to-right, skipping entries that
-# fail or freeze. So `["cc:opus", "cx:g55", "op:zai"]` reads as:
-# "use opus; if it dies, switch to gpt-5.5; if that dies, switch to glm".
+# Rally loads that user file first, then applies anything set HERE on top of it
+# (per key: a value here wins over the same key in the user file). Leave a
+# setting commented out to inherit it from the user file. Use this file only for
+# settings that should differ in THIS repository.
 #
-# Prefer at least two entries per lane. A single-runner lane has no fallback
-# when its harness fails — Rally will warn at relay start.
-[routes]
-
-
-
-# Balanced rotation when no role matches the lap assignee.
-default = ['cc:opus:1', 'cx:g55:1', 'op:zai:1', 'ag:flash:1', 'ag:pro:1', 'op:kimi:1']
-
-# Frontier models to make judgement calls
-senior = ['ag:opus', 'cx:g55', 'cc:opus', 'op:ds', 'op:kimi']
-
-# Regular well-defined work. Rotates per iteration.
-junior = ['op:zai', 'ge:pro', 'ag:flash', 'ag:pro', 'op:kimi', 'op:zgo', 'cx:g54', 'cc:sonnet']
-
-# UI / visual reasoning. Prefer gemini, fall back to claude sonnet.
-ui = ['ag:flash', 'ge:pro', 'ag:pro', 'op:kimi', 'cc:sonnet', 'ag:sonnet']
-
-# Verification / review tasks. Codex first, claude as backup.
-verify = ['cx:g54', 'cx:g55', 'cc:opus', 'ag:opus', 'op:ds']
-
-recovery = ['cx:g54', 'cx:g55', 'cc:opus', 'ag:opus', 'op:ds']
-
-
-# Custom role example
-explore = ['op:dsf:2', 'op:mini:3']
+# Uncomment and edit any of the examples below to override them for this repo:
+#
+# schema_version = 2
+#
+# [defaults]
+# iterations = 5
+# mix = "cc cx"
+#
+# [routes]
+# # Map a role to an ordered runner fallback list (first that works wins).
+# junior = ["op:zai", "cc:sonnet"]
+# senior = ["cc:opus", "cx:g55"]
+#
+# [providers]
+# # Group runners that share one usage-limit budget. When any member hits a
+# # usage limit, every member is benched until the reset — so rally stops
+# # retrying models that draw from the same exhausted account, even across
+# # harnesses. Entries are model aliases, harness:model specs, or wildcards
+# # such as codex:* and opencode-go/*.
+# codex = ["codex:*", "opencode:openai/*"]
+# # Use the table form to disable a whole provider (e.g. a known monthly cap,
+# # or to conserve usage while another session runs a big task):
+# # [providers.opencode-go]
+# # models   = ["opencode:opencode-go/*"]
+# # disabled = true
+#
+# [reliability]
+# retry_budget = 5
+#
+# [telemetry]
+# new_relic_app_name = ""

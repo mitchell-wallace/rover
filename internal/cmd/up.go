@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/mitchell-wallace/rover/internal/locale"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/spf13/cobra"
 )
@@ -13,6 +14,8 @@ func init() {
 	var familyFlag string
 	var assumeYes bool
 	var noProvision bool
+	var timezoneFlag string
+	var localeFlag string
 
 	cmd := &cobra.Command{
 		Use:   "up [small|medium|large]",
@@ -26,6 +29,25 @@ func init() {
 			a, err := loadContext()
 			if err != nil {
 				return err
+			}
+			if timezoneFlag != "" {
+				if err := locale.ValidateTimezone(timezoneFlag); err != nil {
+					return err
+				}
+				a.provision.Timezone = timezoneFlag
+				a.state.Timezone = timezoneFlag
+			}
+			if localeFlag != "" {
+				if err := locale.ValidateLocale(localeFlag); err != nil {
+					return err
+				}
+				a.provision.Locale = localeFlag
+				a.state.Locale = localeFlag
+			}
+			if timezoneFlag != "" || localeFlag != "" {
+				if err := a.state.Save(); err != nil {
+					return err
+				}
 			}
 			family := a.state.Fam()
 			if familyFlag != "" {
@@ -48,5 +70,7 @@ func init() {
 	cmd.Flags().StringVar(&sizeFlag, "size", "", "size profile: "+strings.Join(sizes.Order, "|"))
 	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "skip confirmation prompts")
 	cmd.Flags().BoolVar(&noProvision, "no-provision", false, "on a fresh create, don't auto-run provisioning")
+	cmd.Flags().StringVar(&timezoneFlag, "timezone", "", "set the VM timezone (IANA zone, e.g. America/New_York)")
+	cmd.Flags().StringVar(&localeFlag, "locale", "", "set the VM locale (e.g. en_US.UTF-8)")
 	rootCmd.AddCommand(cmd)
 }

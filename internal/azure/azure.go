@@ -52,6 +52,7 @@ func (i Info) Host() string {
 type Client struct {
 	state    *config.State
 	assetDir string
+	runAZ    azRunner
 }
 
 // New builds a Client. assetDir is the materialized asset tree root.
@@ -80,7 +81,11 @@ func (c *Client) capture(script string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", append([]string{c.scriptPath(script)}, args...)...)
-	cmd.Env = c.state.Env()
+	env, err := c.commandEnv()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Env = env
 	cmd.Stderr = os.Stderr
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -94,7 +99,11 @@ func (c *Client) stream(script string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", append([]string{c.scriptPath(script)}, args...)...)
-	cmd.Env = c.state.Env()
+	env, err := c.commandEnv()
+	if err != nil {
+		return err
+	}
+	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -142,9 +151,13 @@ func (c *Client) Info() (Info, error) {
 	return c.runJSON("ip")
 }
 
-// SSH opens an interactive SSH session, passing through any extra args.
-func (c *Client) SSH(extra ...string) error {
-	return c.stream("ssh", extra...)
+// SSH opens an SSH session, passing through any remote command arguments.
+func (c *Client) SSH(tmux bool, extra ...string) error {
+	mode := "--no-tmux"
+	if tmux {
+		mode = "--tmux"
+	}
+	return c.stream("ssh", append([]string{mode}, extra...)...)
 }
 
 // SetPublicSSH enables or disables public SSH access on the NSG.

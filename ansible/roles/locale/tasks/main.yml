@@ -1,0 +1,26 @@
+---
+# Apply the host's timezone and locale to the VM.
+
+- name: Ensure locales and tzdata are installed
+  ansible.builtin.apt:
+    name:
+      - locales
+      - tzdata
+    state: present
+
+- name: Generate the requested locale
+  ansible.builtin.command:
+    cmd: locale-gen {{ rover_locale }}
+  register: locale_gen_result
+  changed_when: locale_gen_result.rc == 0
+  failed_when: false
+
+- name: Set system locale
+  ansible.builtin.command:
+    cmd: update-locale LANG={{ rover_locale }} LC_ALL={{ rover_locale }} LANGUAGE={{ rover_locale.split('.')[0] }}
+  when: locale_gen_result.rc == 0
+
+- name: Set system timezone
+  ansible.builtin.command:
+    cmd: timedatectl set-timezone {{ rover_timezone }}
+  changed_when: true

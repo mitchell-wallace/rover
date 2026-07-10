@@ -26,6 +26,11 @@ type downCall struct {
 	yes bool
 }
 
+type sshCall struct {
+	tmux  bool
+	extra []string
+}
+
 type fakeAzure struct {
 	upCalls []upCall
 	upInfo  azure.Info
@@ -47,7 +52,7 @@ type fakeAzure struct {
 	resizeDiskInfo  azure.Info
 	resizeDiskErr   error
 
-	sshCalls [][]string
+	sshCalls []sshCall
 	sshErr   error
 
 	runCommandScripts []string
@@ -79,8 +84,8 @@ func (f *fakeAzure) ResizeDisk(gb int) (azure.Info, error) {
 	return f.resizeDiskInfo, f.resizeDiskErr
 }
 
-func (f *fakeAzure) SSH(extra ...string) error {
-	f.sshCalls = append(f.sshCalls, append([]string(nil), extra...))
+func (f *fakeAzure) SSH(tmux bool, extra ...string) error {
+	f.sshCalls = append(f.sshCalls, sshCall{tmux: tmux, extra: append([]string(nil), extra...)})
 	return f.sshErr
 }
 
@@ -365,6 +370,34 @@ func TestRestart_RestoresConnectivityWhenPublicSSHClosed(t *testing.T) {
 	requireNoErr(t, h.svc.Restart(context.Background()))
 
 	requireEqual(t, h.conn.restoreCalls, 1)
+}
+
+func TestSSH_TmuxSelection(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   bool
+		options  SSHOptions
+		extra    []string
+		wantTmux bool
+	}{
+		{name: "default interactive session", config: true, wantTmux: true},
+		{name: "per invocation opt out", config: true, options: SSHOptions{NoTmux: true}},
+		{name: "persistent opt out", config: false},
+		{name: "remote command", config: true, extra: []string{"uname", "-a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHarness(t)
+			h.az.statusInfo = runningVMInfo()
+			h.st.SSHSettings().Tmux = tt.config
+
+			requireNoErr(t, h.svc.SSH(tt.options, tt.extra...))
+
+			requireEqual(t, len(h.az.sshCalls), 1)
+			requireEqual(t, h.az.sshCalls[0].tmux, tt.wantTmux)
+			requireEqual(t, strings.Join(h.az.sshCalls[0].extra, "\x00"), strings.Join(tt.extra, "\x00"))
+		})
+	}
 }
 
 func requireNoErr(t *testing.T, err error) {

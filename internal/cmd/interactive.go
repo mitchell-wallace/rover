@@ -8,6 +8,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/ui"
+	"github.com/mitchell-wallace/rover/internal/vm"
 )
 
 // runInteractive drives the menu shown for a bare `rover` invocation. Every
@@ -19,7 +20,7 @@ func runInteractive() error {
 		if err != nil {
 			return err
 		}
-		return a.vm.Status()
+		return a.status()
 	}
 
 	// First run (no state file yet): walk through guided setup before the menu.
@@ -44,6 +45,12 @@ func runInteractive() error {
 	}
 
 	fmt.Printf("Rover %s — remote VM compute for Dune\n\n", version)
+	if account, accountErr := a.azure.Account(); accountErr != nil {
+		ui.Warn("Azure status: %v", accountErr)
+	} else {
+		printAzureAccount(a.state, account)
+	}
+	fmt.Println()
 
 	for {
 		var action string
@@ -51,6 +58,8 @@ func runInteractive() error {
 			Title("What would you like to do?").
 			Options(
 				huh.NewOption("Status", "status"),
+				huh.NewOption("Azure login", "login"),
+				huh.NewOption("Azure logout", "logout"),
 				huh.NewOption("Up (start/resize VM)", "up"),
 				huh.NewOption("Provision (Ansible)", "provision"),
 				huh.NewOption("SSH into VM", "ssh"),
@@ -70,7 +79,11 @@ func runInteractive() error {
 
 		switch action {
 		case "status":
-			err = a.vm.Status()
+			err = a.status()
+		case "login":
+			err = loginAzure(a.state, a.azure, true)
+		case "logout":
+			err = logoutAzure(a.state, a.azure)
 		case "up":
 			family := a.state.Fam()
 			size := a.state.Size
@@ -98,7 +111,7 @@ func runInteractive() error {
 		case "provision":
 			err = a.provision.Run(context.Background())
 		case "ssh":
-			err = a.vm.SSH()
+			err = a.vm.SSH(vm.SSHOptions{})
 		case "connect":
 			err = a.conn.Connect(context.Background())
 		case "command":

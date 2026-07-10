@@ -30,6 +30,7 @@ func doDoctor() error {
 	if err != nil {
 		return err
 	}
+	az := newAzureClient(st, "")
 
 	ok := true
 	// pass marks a check result; on failure, when interactive and a fixer is
@@ -62,13 +63,16 @@ func doDoctor() error {
 
 	if azInstalled() {
 		pass("Azure CLI logged in",
-			func() bool { return exec.Command("az", "account", "show", "-o", "none").Run() == nil },
-			"run 'az login'",
-			func() error { return runInherit("az", "login") })
+			func() bool {
+				account, accountErr := az.Account()
+				return accountErr == nil && account.LoggedIn
+			},
+			"run 'rover login'",
+			func() error { return az.Login(true) })
 		pass("Bicep available",
-			func() bool { return exec.Command("az", "bicep", "version").Run() == nil },
-			"run 'az bicep install'",
-			func() error { return runInherit("az", "bicep", "install") })
+			az.BicepAvailable,
+			"run 'rover doctor' interactively to install Bicep in Rover's Azure context",
+			az.InstallBicep)
 	}
 
 	pass("ssh client installed",
@@ -98,8 +102,8 @@ func doDoctor() error {
 	return fmt.Errorf("some checks failed; address the hints above")
 }
 
-// runInherit runs a command with the user's terminal attached (for interactive
-// flows like 'az login' or progress output).
+// runInherit runs a non-Azure command with the user's terminal attached. Azure
+// processes go through azure.Client so they always receive the isolated env.
 func runInherit(name string, args ...string) error {
 	c := exec.Command(name, args...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr

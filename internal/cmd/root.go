@@ -13,6 +13,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/connectivity"
 	"github.com/mitchell-wallace/rover/internal/provision"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/ui"
 	"github.com/mitchell-wallace/rover/internal/vm"
 	"github.com/spf13/cobra"
 
@@ -26,7 +27,7 @@ var rootCmd = &cobra.Command{
 	Short: "Rover — provision remote Linux VM compute for running Dune",
 	Long: `Rover provisions and manages a single remote Linux VM on Azure so you can
 SSH in and run Dune there. Run 'rover' with no arguments for an interactive
-menu, or use the subcommands (up/down/status/ssh/provision/doctor) directly.`,
+menu, or use the subcommands (login/logout/up/down/status/ssh/provision/doctor) directly.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	// Bare `rover` launches the interactive menu.
@@ -51,6 +52,7 @@ func Execute(v string) error {
 type appContext struct {
 	state     *config.State
 	assetDir  string
+	azure     *azure.Client
 	vm        *vm.Service
 	conn      *connectivity.Service
 	provision *provision.Service
@@ -60,6 +62,28 @@ type appContext struct {
 // don't shell out, like doctor/config).
 func loadStateOnly() (*config.State, error) {
 	return config.Load()
+}
+
+// loadAzureOnly prepares Azure auth/account operations without materializing
+// Rover's embedded infrastructure assets.
+func loadAzureOnly() (*config.State, *azure.Client, error) {
+	st, err := config.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	az := newAzureClient(st, "")
+	return st, az, nil
+}
+
+func newAzureClient(st *config.State, assetDir string) *azure.Client {
+	if config.AzureConfigDirOverridden() {
+		effective, effectiveErr := st.AzureConfigDir()
+		configured, configuredErr := st.ConfiguredAzureConfigDir()
+		if effectiveErr == nil && configuredErr == nil {
+			ui.Warn("AZURE_CONFIG_DIR is set; using %s instead of Rover config %s", effective, configured)
+		}
+	}
+	return azure.New(st, assetDir)
 }
 
 // loadContext loads state and prepares the Azure client + asset tree.
@@ -72,7 +96,7 @@ func loadContext() (*appContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("materialize assets: %w", err)
 	}
-	az := azure.New(st, dir)
+	az := newAzureClient(st, dir)
 	tsClient := tailscale.NewClient()
 	conn := connectivity.New(st, az, tsClient)
 	prov := provision.New(st, az, tsClient, dir)
@@ -89,6 +113,7 @@ func loadContext() (*appContext, error) {
 	return &appContext{
 		state:     st,
 		assetDir:  dir,
+		azure:     az,
 		vm:        vmSvc,
 		conn:      conn,
 		provision: prov,

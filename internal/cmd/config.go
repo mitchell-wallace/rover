@@ -49,7 +49,17 @@ func printConfig(st *config.State) {
 		p = "(error: " + err.Error() + ")"
 	}
 	fmt.Printf("Rover config (%s)\n", p)
-	fmt.Printf("  subscription:    %s\n", orDefault(st.Subscription, "(az default)"))
+	azure := st.AzureSettings()
+	azureDir, azureDirErr := st.AzureConfigDir()
+	if azureDirErr != nil {
+		azureDir = "(error: " + azureDirErr.Error() + ")"
+	}
+	if config.AzureConfigDirOverridden() {
+		azureDir += " (AZURE_CONFIG_DIR override)"
+	}
+	fmt.Printf("  azure config dir: %s\n", azureDir)
+	fmt.Printf("  subscription:    %s\n", orDefault(st.AzureSubscription(), "(az default)"))
+	fmt.Printf("  tenant:          %s\n", orDefault(azure.Tenant, "(az default)"))
 	fmt.Printf("  resource group:  %s\n", st.ResourceGroup)
 	fmt.Printf("  region:          %s\n", st.Location)
 	fmt.Printf("  vm name:         %s\n", st.VMName)
@@ -58,6 +68,7 @@ func printConfig(st *config.State) {
 	fmt.Printf("  disk:            %d GiB\n", st.DiskGB())
 	fmt.Printf("  admin username:  %s\n", st.AdminUsername)
 	fmt.Printf("  ssh port:        %d\n", st.SSHPort())
+	fmt.Printf("  ssh tmux:        %v\n", st.SSHTmux())
 	fmt.Printf("  ssh public key:  %s\n", st.SSHPublicKey)
 	fmt.Printf("  ssh private key: %s\n", st.PrivateKeyPath())
 	fmt.Printf("  ansible applied: %v\n", st.AnsibleApplied)
@@ -75,8 +86,17 @@ func printConfig(st *config.State) {
 func editConfig(st *config.State) error {
 	// huh inputs bind to strings; round-trip the SSH port through one.
 	portStr := strconv.Itoa(st.SSHPort())
+	azure := st.AzureSettings()
+	ssh := st.SSHSettings()
+	defaultAzureDir, err := config.DefaultAzureConfigDir()
+	if err != nil {
+		return err
+	}
 	form := huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title("Azure subscription (blank = az default)").Value(&st.Subscription),
+		huh.NewInput().Title("Azure config directory (blank = Rover default)").
+			Description("Default: "+defaultAzureDir).Value(&azure.ConfigDir),
+		huh.NewInput().Title("Azure subscription (blank = az default)").Value(&azure.Subscription),
+		huh.NewInput().Title("Azure tenant (blank = az default)").Value(&azure.Tenant),
 		huh.NewInput().Title("Resource group").Value(&st.ResourceGroup),
 		huh.NewInput().Title("Region").Value(&st.Location),
 		huh.NewInput().Title("VM name").Value(&st.VMName),
@@ -87,6 +107,7 @@ func editConfig(st *config.State) error {
 		huh.NewInput().Title("Admin username").Value(&st.AdminUsername).
 			Validate(config.ValidateAdminUsername),
 		huh.NewInput().Title("Public SSH port").Value(&portStr).Validate(validatePortStr),
+		huh.NewConfirm().Title("Attach interactive SSH sessions to tmux").Value(&ssh.Tmux),
 		huh.NewInput().Title("SSH public key path").Value(&st.SSHPublicKey),
 		huh.NewInput().Title("Tailscale hostname (blank = VM name)").Value(&st.TailscaleHostname),
 		huh.NewInput().Title("Tailscale tags").Value(&st.TailscaleTags),

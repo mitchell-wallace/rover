@@ -43,7 +43,7 @@ use.
 rover (Go CLI)
   ├─ internal/azure   → shells out to scripts/azure/* (az CLI + Bicep)
   ├─ internal/ansible → runs ansible/playbook.yml against the live VM
-  └─ internal/config  → ~/.config/rover/state.json (the only state)
+  └─ internal/config  → ~/.config/rover/state.json + isolated Azure CLI state
 
 infra/bicep/main.bicep        size profiles, network, VM, cloud-init
 infra/cloud-init/             minimal first-boot prep for Ansible
@@ -61,11 +61,11 @@ callers.
 ## Prerequisites
 
 Run `rover doctor` to check all of these at once. When run in a terminal, it
-offers to fix what it can — generate a missing SSH key, run `az login`, or
-`az bicep install`.
+offers to fix what it can — generate a missing SSH key, run `rover login`, or
+install Bicep in Rover's isolated Azure context.
 
 - **Azure CLI** (`az`) — https://learn.microsoft.com/cli/azure/install-azure-cli
-- **Bicep** — `az bicep install`
+- **Bicep** — `rover doctor` can install it in Rover's Azure context
 - **OpenSSH client** (`ssh`)
 - **Ansible** — `pipx install ansible` or `pip install --user ansible`
 - An **SSH key pair**
@@ -75,12 +75,44 @@ offers to fix what it can — generate a missing SSH key, run `az login`, or
 ## Azure login
 
 ```sh
-az login
-az account set --subscription "<name-or-id>"   # if you have several
+rover login                    # device-code flow (default)
+rover login --browser          # optional browser-based az login
+rover status                   # show Rover's identity + active subscription
+rover logout
 ```
 
-Rover uses your active `az` login. Set a specific subscription in Rover config if
-you want it pinned (`rover config --edit`).
+Rover deliberately does **not** use the host machine's normal `~/.azure` login.
+Every Azure CLI process Rover starts receives an `AZURE_CONFIG_DIR` pointing to
+Rover's isolated directory (by default `~/.config/rover/azure`). This lets Rover
+use a work or personal Azure identity independently of other `az` CLI use on the
+same machine. `rover logout` clears only that isolated context.
+
+The Azure section of `state.json` supports an optional directory, subscription,
+and tenant:
+
+```json
+{
+  "azure": {
+    "config_dir": "/home/me/.config/rover/azure",
+    "subscription": "name-or-id",
+    "tenant": "tenant-id"
+  }
+}
+```
+
+Blank fields select the isolated default directory and Azure CLI defaults. A
+configured tenant is passed to `rover login`; a configured subscription is
+selected after login and passed to Rover's Azure resource commands. Set these
+with `rover config --edit` or by editing `rover config --path`.
+
+If `AZURE_CONFIG_DIR` is already explicitly set in the environment, it wins over
+`azure.config_dir` and Rover prints a warning. This override is intended for
+deliberate advanced use; unset it to restore config-file control.
+
+> **Upgrading:** Existing `state.json` files continue to load, including the old
+> top-level `subscription` field, which Rover migrates into the Azure section.
+> Because credentials now default to the isolated directory, run `rover login`
+> once after upgrading. Your existing host `az` login remains untouched.
 
 ## SSH key setup
 
@@ -119,9 +151,19 @@ rover config --edit     # interactive editor (region, RG, VM name, user, key, si
 rover config --path     # print the state file path
 ```
 
-Tracked fields: subscription, resource group, region, VM name, size, admin
-username, SSH key paths, last-known connection info, and whether Ansible has been
-applied.
+Tracked fields include the Azure config directory/subscription/tenant, resource
+group, region, VM name, size, admin username, SSH key paths, last-known
+connection info, and whether Ansible has been applied. The Azure credential and
+token files themselves live under `azure.config_dir`, not in `state.json`.
+
+The scripts under `scripts/azure/` remain usable standalone. To make a direct
+script invocation use Rover's default isolated identity, export the directory
+first (use your configured `azure.config_dir` instead when customized):
+
+```sh
+export AZURE_CONFIG_DIR="$(dirname "$(rover config --path)")/azure"
+scripts/azure/status
+```
 
 ## Starting a VM
 
@@ -205,11 +247,19 @@ and is fully idempotent (re-run any time).
 ## Connecting to the VM
 
 ```sh
-rover ssh                       # interactive shell (public IP + SSH key)
-rover ssh -- uname -a           # run a one-off remote command
+rover ssh                       # attach/create the "rover" tmux session
+rover ssh --no-tmux             # opt out once and open a plain shell
+rover ssh -- uname -a           # run a one-off command (never uses tmux)
 rover connect                   # connect over Tailscale (see below)
 rover status                    # power state + connection info
 ```
+
+Interactive `rover ssh` sessions run `tmux new-session -A -s rover`, so a
+disconnect does not discard the remote terminal. The interactive menu uses the
+same default. Tmux is installed by `rover provision`; if it is missing on an
+older or unprovisioned VM, Rover prints one warning and opens a plain shell.
+To opt out persistently, disable **Attach interactive SSH sessions to tmux** in
+`rover config --edit`, which saves `"ssh": {"tmux": false}` in Rover's config.
 
 ## Tailscale (optional)
 

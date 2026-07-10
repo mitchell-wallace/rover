@@ -84,8 +84,9 @@ func (s *Service) Status() error {
 	return nil
 }
 
-// SSH opens an interactive SSH session through Azure's SSH wrapper.
-func (s *Service) SSH(extra ...string) error {
+// SSH opens an SSH session through Azure's SSH wrapper. Interactive sessions
+// attach to tmux by default; one-off commands always bypass tmux.
+func (s *Service) SSH(opts SSHOptions, extra ...string) error {
 	info, err := s.Azure.Status()
 	if err != nil {
 		return err
@@ -96,5 +97,6 @@ func (s *Service) SSH(extra ...string) error {
 	if !info.Running() {
 		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
 	}
-	return s.Azure.SSH(extra...)
+	useTmux := s.State.SSHTmux() && !opts.NoTmux && len(extra) == 0
+	return s.Azure.SSH(useTmux, extra...)
 }

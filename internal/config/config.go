@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mitchell-wallace/rover/internal/locale"
 )
 
 // Connection holds the last known reachability info for the VM. It is a cache
@@ -25,21 +27,44 @@ type Connection struct {
 	SSHTarget  string `json:"sshTarget,omitempty"`
 }
 
+// AzureConfig controls Rover's isolated Azure CLI context. Credentials and
+// token state written by az live under ConfigDir rather than the host's
+// default ~/.azure directory.
+type AzureConfig struct {
+	ConfigDir    string `json:"config_dir,omitempty"`
+	Subscription string `json:"subscription,omitempty"`
+	Tenant       string `json:"tenant,omitempty"`
+}
+
+// SSHConfig controls how Rover opens interactive public SSH sessions.
+type SSHConfig struct {
+	Tmux bool `json:"tmux"`
+}
+
 // State is the persisted Rover configuration + last-known runtime state.
 type State struct {
-	Subscription   string     `json:"subscription,omitempty"`
-	ResourceGroup  string     `json:"resourceGroup"`
-	Location       string     `json:"location"`
-	VMName         string     `json:"vmName"`
-	Family         string     `json:"family,omitempty"`
-	Size           string     `json:"size"`
-	DiskSizeGB     int        `json:"diskSizeGB"`
-	AdminUsername  string     `json:"adminUsername"`
-	SSHListenPort  int        `json:"sshPort,omitempty"`
-	SSHPublicKey   string     `json:"sshPublicKey"`
-	SSHPrivateKey  string     `json:"sshPrivateKey,omitempty"`
-	Connection     Connection `json:"connection,omitempty"`
-	AnsibleApplied bool       `json:"ansibleApplied"`
+	// Subscription is the pre-Azure-section location retained only so state
+	// files written by older Rover versions continue to load. New saves migrate
+	// it to Azure.Subscription.
+	Subscription   string       `json:"subscription,omitempty"`
+	Azure          *AzureConfig `json:"azure,omitempty"`
+	SSH            *SSHConfig   `json:"ssh,omitempty"`
+	ResourceGroup  string       `json:"resourceGroup"`
+	Location       string       `json:"location"`
+	VMName         string       `json:"vmName"`
+	Family         string       `json:"family,omitempty"`
+	Size           string       `json:"size"`
+	DiskSizeGB     int          `json:"diskSizeGB"`
+	AdminUsername  string       `json:"adminUsername"`
+	SSHListenPort  int          `json:"sshPort,omitempty"`
+	SSHPublicKey   string       `json:"sshPublicKey"`
+	SSHPrivateKey  string       `json:"sshPrivateKey,omitempty"`
+	Connection     Connection   `json:"connection,omitempty"`
+	AnsibleApplied bool         `json:"ansibleApplied"`
+
+	// Locale and timezone detected from the host at provision time.
+	Timezone string `json:"timezone,omitempty"`
+	Locale   string `json:"locale,omitempty"`
 
 	// Tailscale (optional). The auth key is never stored here — it is read from
 	// the TS_AUTHKEY environment variable at provision time or generated via OAuth.
@@ -72,6 +97,22 @@ func (s *State) SSHPort() int {
 	return s.SSHListenPort
 }
 
+// SSHTmux reports whether interactive public SSH sessions should attach to
+// Rover's tmux session. A missing section means enabled so older state files
+// adopt the new default without a migration.
+func (s *State) SSHTmux() bool {
+	return s.SSH == nil || s.SSH.Tmux
+}
+
+// SSHSettings returns the mutable SSH section, creating it with defaults for
+// state files written before the section existed.
+func (s *State) SSHSettings() *SSHConfig {
+	if s.SSH == nil {
+		s.SSH = &SSHConfig{Tmux: true}
+	}
+	return s.SSH
+}
+
 // Fam returns the configured compute family, defaulting to burstable so state
 // files written before families existed keep their original behavior.
 func (s *State) Fam() string {
@@ -79,6 +120,24 @@ func (s *State) Fam() string {
 		return "burstable"
 	}
 	return s.Family
+}
+
+// EffectiveTimezone returns the configured IANA timezone, auto-detecting from
+// the host if not yet persisted.
+func (s *State) EffectiveTimezone() string {
+	if s.Timezone != "" {
+		return s.Timezone
+	}
+	return locale.EffectiveTimezone()
+}
+
+// EffectiveLocale returns the configured locale string, auto-detecting from the
+// host if not yet persisted.
+func (s *State) EffectiveLocale() string {
+	if s.Locale != "" {
+		return s.Locale
+	}
+	return locale.EffectiveLocale()
 }
 
 // TSHostname returns the Tailscale node name, defaulting to the VM name.
@@ -146,6 +205,8 @@ func Default() *State {
 		admin = u.Username
 	}
 	return &State{
+		Azure:         &AzureConfig{},
+		SSH:           &SSHConfig{Tmux: true},
 		ResourceGroup: "rover-rg",
 		Location:      "australiaeast",
 		VMName:        "rover-vm",
@@ -249,6 +310,57 @@ func Path() (string, error) {
 	return filepath.Join(base, "rover", "state.json"), nil
 }
 
+// DefaultAzureConfigDir returns Rover's default isolated Azure CLI directory.
+func DefaultAzureConfigDir() (string, error) {
+	p, err := Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(p), "azure"), nil
+}
+
+// AzureSettings returns the mutable Azure section, creating it for state files
+// written before the section existed.
+func (s *State) AzureSettings() *AzureConfig {
+	if s.Azure == nil {
+		s.Azure = &AzureConfig{}
+	}
+	return s.Azure
+}
+
+// ConfiguredAzureConfigDir resolves config-file state without consulting the
+// environment. An empty config_dir selects Rover's isolated default.
+func (s *State) ConfiguredAzureConfigDir() (string, error) {
+	if s.Azure != nil && s.Azure.ConfigDir != "" {
+		return s.Azure.ConfigDir, nil
+	}
+	return DefaultAzureConfigDir()
+}
+
+// AzureConfigDir resolves the effective Azure CLI directory. An explicitly
+// set AZURE_CONFIG_DIR wins over Rover's config-file value.
+func (s *State) AzureConfigDir() (string, error) {
+	if dir := os.Getenv("AZURE_CONFIG_DIR"); dir != "" {
+		return dir, nil
+	}
+	return s.ConfiguredAzureConfigDir()
+}
+
+// AzureConfigDirOverridden reports whether the user explicitly selected an
+// Azure CLI directory through the environment.
+func AzureConfigDirOverridden() bool {
+	return os.Getenv("AZURE_CONFIG_DIR") != ""
+}
+
+// AzureSubscription returns the nested Azure subscription, falling back to
+// the legacy top-level field for callers holding an un-migrated State value.
+func (s *State) AzureSubscription() string {
+	if s.Azure != nil && s.Azure.Subscription != "" {
+		return s.Azure.Subscription
+	}
+	return s.Subscription
+}
+
 // Load reads the state file, returning defaults if it does not exist yet.
 func Load() (*State, error) {
 	p, err := Path()
@@ -265,6 +377,13 @@ func Load() (*State, error) {
 	st := Default()
 	if err := json.Unmarshal(data, st); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
+	}
+	azure := st.AzureSettings()
+	if st.Subscription != "" {
+		if azure.Subscription == "" {
+			azure.Subscription = st.Subscription
+		}
+		st.Subscription = ""
 	}
 	return st, nil
 }
@@ -299,13 +418,27 @@ func (s *State) PrivateKeyPath() string {
 
 // Env renders the state as ROVER_* environment variables for the shell scripts,
 // appended onto the current process environment.
-func (s *State) Env() []string {
+func (s *State) Env() ([]string, error) {
+	azureConfigDir, err := s.AzureConfigDir()
+	if err != nil {
+		return nil, err
+	}
 	env := os.Environ()
+	set := func(k, v string) {
+		prefix := k + "="
+		for i := len(env) - 1; i >= 0; i-- {
+			if strings.HasPrefix(env[i], prefix) {
+				env = append(env[:i], env[i+1:]...)
+			}
+		}
+		env = append(env, prefix+v)
+	}
 	add := func(k, v string) {
 		if v != "" {
-			env = append(env, k+"="+v)
+			set(k, v)
 		}
 	}
+	set("AZURE_CONFIG_DIR", azureConfigDir)
 	add("ROVER_RESOURCE_GROUP", s.ResourceGroup)
 	add("ROVER_LOCATION", s.Location)
 	add("ROVER_VM_NAME", s.VMName)
@@ -314,11 +447,13 @@ func (s *State) Env() []string {
 	add("ROVER_ADMIN_USER", s.AdminUsername)
 	add("ROVER_SSH_PUBKEY", s.SSHPublicKey)
 	add("ROVER_SSH_KEY", s.PrivateKeyPath())
-	add("ROVER_SUBSCRIPTION", s.Subscription)
+	// Subscription is config-file controlled. Set an explicit empty value so a
+	// standalone-script ROVER_SUBSCRIPTION from the host cannot leak into Rover.
+	set("ROVER_SUBSCRIPTION", s.AzureSubscription())
 	sshAccess := "Allow"
 	if s.PublicSSHClosed {
 		sshAccess = "Deny"
 	}
 	add("ROVER_PUBLIC_SSH_ACCESS", sshAccess)
-	return env
+	return env, nil
 }

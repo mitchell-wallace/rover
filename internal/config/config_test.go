@@ -68,6 +68,9 @@ func TestDefaultStateWellFormed(t *testing.T) {
 	if err := ValidateAdminUsername(st.AdminUsername); err != nil {
 		t.Errorf("Default AdminUsername invalid: %v", err)
 	}
+	if !st.SSHTmux() {
+		t.Error("SSHTmux() = false, want default enabled")
+	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -78,6 +81,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	st.ResourceGroup = "rg-test"
 	st.Size = "large"
 	st.AnsibleApplied = true
+	st.Azure.ConfigDir = "/tmp/rover-azure"
+	st.Azure.Subscription = "sub-test"
+	st.Azure.Tenant = "tenant-test"
 	if err := st.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -91,8 +97,86 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.ResourceGroup != "rg-test" || got.Size != "large" || !got.AnsibleApplied {
+	if got.ResourceGroup != "rg-test" || got.Size != "large" || !got.AnsibleApplied ||
+		got.Azure.ConfigDir != "/tmp/rover-azure" || got.Azure.Subscription != "sub-test" || got.Azure.Tenant != "tenant-test" {
 		t.Errorf("round trip mismatch: %+v", got)
+	}
+}
+
+func TestLoadMigratesLegacySubscription(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	p, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	legacy := []byte(`{"subscription":"legacy-sub","resourceGroup":"rg","location":"eastus","vmName":"vm","size":"small","diskSizeGB":30,"adminUsername":"rover","sshPublicKey":"key","ansibleApplied":false}`)
+	if err := os.WriteFile(p, legacy, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	st, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := st.AzureSubscription(); got != "legacy-sub" {
+		t.Errorf("AzureSubscription() = %q, want legacy-sub", got)
+	}
+	if st.Subscription != "" {
+		t.Errorf("legacy Subscription = %q after load, want migrated empty value", st.Subscription)
+	}
+	if st.Azure == nil || st.Azure.Subscription != "legacy-sub" {
+		t.Errorf("Azure section not populated from legacy state: %+v", st.Azure)
+	}
+	if !st.SSHTmux() {
+		t.Error("legacy state should default ssh.tmux to true")
+	}
+}
+
+func TestSSHTmuxOptOutRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	st := Default()
+	st.SSHSettings().Tmux = false
+	if err := st.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.SSHTmux() {
+		t.Error("SSHTmux() = true after persisted opt-out")
+	}
+}
+
+func TestLoadPrefersNestedSubscriptionAndDropsLegacyField(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	p, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data := []byte(`{"subscription":"legacy-sub","azure":{"subscription":"nested-sub"}}`)
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	st, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := st.AzureSubscription(); got != "nested-sub" {
+		t.Errorf("AzureSubscription() = %q, want nested-sub", got)
+	}
+	if st.Subscription != "" {
+		t.Errorf("legacy Subscription = %q after load, want empty", st.Subscription)
 	}
 }
 
@@ -160,6 +244,72 @@ func TestValidateSSHPort(t *testing.T) {
 	}
 }
 
+func TestDefaultTimezoneLocaleEmpty(t *testing.T) {
+	st := Default()
+	if st.Timezone != "" {
+		t.Errorf("Default().Timezone = %q, want empty (auto-detect)", st.Timezone)
+	}
+	if st.Locale != "" {
+		t.Errorf("Default().Locale = %q, want empty (auto-detect)", st.Locale)
+	}
+}
+
+func TestTimezoneLocaleRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	st := Default()
+	st.Timezone = "America/New_York"
+	st.Locale = "en_US.UTF-8"
+	if err := st.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Timezone != "America/New_York" {
+		t.Errorf("Timezone = %q, want America/New_York", got.Timezone)
+	}
+	if got.Locale != "en_US.UTF-8" {
+		t.Errorf("Locale = %q, want en_US.UTF-8", got.Locale)
+	}
+}
+
+func TestTimezoneGetterUsesStored(t *testing.T) {
+	st := &State{Timezone: "Europe/London"}
+	if got := st.EffectiveTimezone(); got != "Europe/London" {
+		t.Errorf("EffectiveTimezone() = %q, want Europe/London", got)
+	}
+}
+
+func TestTimezoneGetterFallsBackToDetection(t *testing.T) {
+	t.Setenv("TZ", "Asia/Tokyo")
+	st := &State{}
+	got := st.EffectiveTimezone()
+	if got != "Asia/Tokyo" {
+		t.Errorf("EffectiveTimezone() = %q, want Asia/Tokyo", got)
+	}
+}
+
+func TestLocaleGetterUsesStored(t *testing.T) {
+	st := &State{Locale: "fr_FR.UTF-8"}
+	if got := st.EffectiveLocale(); got != "fr_FR.UTF-8" {
+		t.Errorf("EffectiveLocale() = %q, want fr_FR.UTF-8", got)
+	}
+}
+
+func TestLocaleGetterFallsBackToDetection(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LANG", "de_DE.UTF-8")
+	st := &State{}
+	got := st.EffectiveLocale()
+	if got != "de_DE.UTF-8" {
+		t.Errorf("EffectiveLocale() = %q, want de_DE.UTF-8", got)
+	}
+}
+
 func TestPrivateKeyPathDerivation(t *testing.T) {
 	s := &State{SSHPublicKey: "/home/u/.ssh/id_ed25519.pub"}
 	if got := s.PrivateKeyPath(); got != "/home/u/.ssh/id_ed25519" {
@@ -172,13 +322,23 @@ func TestPrivateKeyPathDerivation(t *testing.T) {
 }
 
 func TestEnvRendersRoverVars(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AZURE_CONFIG_DIR", "")
 	st := Default()
-	st.Subscription = "sub-1"
-	env := st.Env()
+	st.Azure.Subscription = "sub-1"
+	env, err := st.Env()
+	if err != nil {
+		t.Fatalf("Env: %v", err)
+	}
+	azureDir, err := DefaultAzureConfigDir()
+	if err != nil {
+		t.Fatalf("DefaultAzureConfigDir: %v", err)
+	}
 	want := map[string]bool{
 		"ROVER_RESOURCE_GROUP=" + st.ResourceGroup:       false,
 		"ROVER_SUBSCRIPTION=sub-1":                       false,
 		"ROVER_SSH_PORT=" + strconv.Itoa(DefaultSSHPort): false,
+		"AZURE_CONFIG_DIR=" + azureDir:                   false,
 	}
 	for _, e := range env {
 		if _, ok := want[e]; ok {
@@ -189,6 +349,77 @@ func TestEnvRendersRoverVars(t *testing.T) {
 		if !found {
 			t.Errorf("Env() missing %q", k)
 		}
+	}
+}
+
+func TestAzureConfigDirResolution(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AZURE_CONFIG_DIR", "")
+	st := Default()
+
+	wantDefault := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "rover", "azure")
+	if got, err := st.AzureConfigDir(); err != nil || got != wantDefault {
+		t.Fatalf("default AzureConfigDir() = %q, %v; want %q", got, err, wantDefault)
+	}
+
+	st.Azure.ConfigDir = "/configured/rover-azure"
+	if got, err := st.AzureConfigDir(); err != nil || got != "/configured/rover-azure" {
+		t.Fatalf("configured AzureConfigDir() = %q, %v", got, err)
+	}
+
+	t.Setenv("AZURE_CONFIG_DIR", "/environment/azure")
+	if got, err := st.AzureConfigDir(); err != nil || got != "/environment/azure" {
+		t.Fatalf("overridden AzureConfigDir() = %q, %v", got, err)
+	}
+	if !AzureConfigDirOverridden() {
+		t.Error("AzureConfigDirOverridden() = false with non-empty environment override")
+	}
+}
+
+func TestEnvReplacesAzureConfigDirOverride(t *testing.T) {
+	t.Setenv("AZURE_CONFIG_DIR", "/environment/azure")
+	st := Default()
+	st.Azure.ConfigDir = "/configured/azure"
+
+	env, err := st.Env()
+	if err != nil {
+		t.Fatalf("Env: %v", err)
+	}
+	count := 0
+	for _, item := range env {
+		if item == "AZURE_CONFIG_DIR=/environment/azure" {
+			count++
+		}
+		if item == "AZURE_CONFIG_DIR=/configured/azure" {
+			t.Error("Env includes configured value despite environment override")
+		}
+	}
+	if count != 1 {
+		t.Errorf("effective AZURE_CONFIG_DIR appears %d times, want exactly once", count)
+	}
+}
+
+func TestEnvDoesNotInheritHostSubscription(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AZURE_CONFIG_DIR", "")
+	t.Setenv("ROVER_SUBSCRIPTION", "host-subscription")
+	st := Default()
+
+	env, err := st.Env()
+	if err != nil {
+		t.Fatalf("Env: %v", err)
+	}
+	count := 0
+	for _, item := range env {
+		if item == "ROVER_SUBSCRIPTION=" {
+			count++
+		}
+		if item == "ROVER_SUBSCRIPTION=host-subscription" {
+			t.Error("Env inherited host ROVER_SUBSCRIPTION despite blank Rover config")
+		}
+	}
+	if count != 1 {
+		t.Errorf("empty configured ROVER_SUBSCRIPTION appears %d times, want exactly once", count)
 	}
 }
 
