@@ -372,11 +372,11 @@
       "title": "Swapfile provisioning + targeted resize handling",
       "description": "Context: current instance has a manually-added swapfile; provisioning should own it. User decision: targeted script on memory change, NOT full re-provision.\n1. Provision-time: create swapfile sized at 1/2 of VM RAM (detect at runtime), enable, persist in fstab. Idempotent; skip if a correctly-sized swapfile exists.\n2. Targeted resize path: a standalone script/tag (e.g. ansible tag or scripts/ entry) that ONLY reconfigures the swapfile for the current RAM size. Wire into rover's resize flow: after a successful VM size change, rover runs (or clearly offers) the targeted swap update — inspect how resize/up flows report size changes and hook there. No full re-provision required.\n3. Handle: existing manual swapfile (adopt or replace safely), insufficient disk, swap currently in use (swapoff before resize).\nGates: just build, just test, just lint, shellcheck, ansible syntax check. Unit-test the size-calculation/decision seams where the code structure allows.",
       "assignee": "senior",
-      "isDone": false,
+      "isDone": true,
       "order": 131072,
       "createdAt": "2026-07-11T13:03:50.188140236Z",
-      "updatedAt": "2026-07-11T13:03:50.188140236Z",
-      "completedAt": null
+      "updatedAt": "2026-07-11T13:17:48.606888424Z",
+      "completedAt": "2026-07-11T13:17:48.606888424Z"
     },
     {
       "kind": "lap",
