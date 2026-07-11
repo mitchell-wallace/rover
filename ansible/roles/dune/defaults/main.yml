@@ -35,5 +35,6 @@ base_packages:
   - gnupg
 
 dune_install_url: "https://raw.githubusercontent.com/mitchell-wallace/dune/main/install.sh"
-thenn_install_url: "https://raw.githubusercontent.com/mitchell-wallace/thenn/main/install.sh"
+mise_install_url: "https://mise.run"
+claude_code_install_url: "https://claude.ai/install.sh"
 powerlevel10k_repo: "https://github.com/romkatv/powerlevel10k.git"

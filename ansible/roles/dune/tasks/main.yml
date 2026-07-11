@@ -18,35 +18,35 @@
     name: "{{ base_packages }}"
     state: present
 
-# --- Docker Engine (official repo) -----------------------------------------
-- name: Create apt keyrings directory
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: "0755"
+# --- Docker Engine + Docker Sandboxes --------------------------------------
+- name: Check whether Docker Sandboxes is installed
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - "-f=${Status}"
+      - docker-sbx
+  register: docker_sbx_installed
+  changed_when: false
+  failed_when: false
 
-- name: Add Docker GPG key
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/ubuntu/gpg
-    dest: /etc/apt/keyrings/docker.asc
-    mode: "0644"
+# Docker's supported Ubuntu install path uses get.docker.com only to configure
+# the apt repository; docker-sbx then pulls in the required Docker packages.
+- name: Configure the Docker apt repository
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://get.docker.com | REPO_ONLY=1 sh
+  args:
+    executable: /bin/bash
+  when: docker_sbx_installed.rc != 0 or docker_sbx_installed.stdout != 'install ok installed'
+  changed_when: true
 
-- name: Add Docker apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-    filename: docker
-    state: present
-
-- name: Install Docker Engine and plugins
+- name: Install Docker Sandboxes
   ansible.builtin.apt:
-    name:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
+    name: docker-sbx
     state: present
     update_cache: true
+  when: docker_sbx_installed.rc != 0 or docker_sbx_installed.stdout != 'install ok installed'
 
 - name: Ensure Docker service is enabled and running
   ansible.builtin.service:
@@ -54,14 +54,18 @@
     state: started
     enabled: true
 
-- name: Add user to docker group
+- name: Add user to Docker and KVM groups
   ansible.builtin.user:
     name: "{{ target_user }}"
-    groups: docker
+    groups:
+      - docker
+      - kvm
     append: true
 
-# Pick up the new docker group membership for subsequent become_user tasks.
-- name: Reset connection so group membership applies
+# `newgrp kvm` starts an interactive subshell, so it is not suitable in an
+# Ansible run. A fresh SSH login gets both new supplementary groups without
+# making this provisioning run depend on the caller logging out manually.
+- name: Reset connection so Docker and KVM group membership applies
   ansible.builtin.meta: reset_connection
 
 # --- GitHub CLI (gh) -------------------------------------------------------
@@ -378,20 +382,74 @@
   when: not dune_check.stat.exists
   changed_when: true
 
-# --- thenn (task scheduler) --------------------------------------------------
-- name: Check whether thenn is already installed
+# --- mise ------------------------------------------------------------------
+- name: Check whether mise is already installed
   become_user: "{{ target_user }}"
   ansible.builtin.stat:
-    path: "{{ user_home }}/.local/bin/thenn"
-  register: thenn_check
+    path: "{{ user_home }}/.local/bin/mise"
+  register: mise_check
 
-- name: Install thenn
+- name: Install mise
   become_user: "{{ target_user }}"
-  ansible.builtin.shell: "curl -fsSL {{ thenn_install_url }} | bash"
+  ansible.builtin.shell: "curl -fsSL {{ mise_install_url }} | sh"
+  args:
+    executable: /bin/sh
+  when: not mise_check.stat.exists
+  changed_when: true
+
+# --- Claude Code ------------------------------------------------------------
+- name: Check whether Claude Code is already installed
+  become_user: "{{ target_user }}"
+  ansible.builtin.stat:
+    path: "{{ user_home }}/.local/bin/claude"
+  register: claude_code_check
+
+# The native installer is Anthropic's recommended non-interactive install path.
+# Native installs update themselves in the background after first installation.
+- name: Install Claude Code
+  become_user: "{{ target_user }}"
+  ansible.builtin.shell: "curl -fsSL {{ claude_code_install_url }} | bash"
   args:
     executable: /bin/bash
-  when: not thenn_check.stat.exists
+  when: not claude_code_check.stat.exists
   changed_when: true
+
+# --- thenn (task scheduler) -------------------------------------------------
+- name: Resolve the latest thenn release
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/mitchell-wallace/thenn/releases/latest
+    return_content: true
+  register: thenn_latest_release
+  changed_when: false
+
+- name: Record the latest thenn version
+  ansible.builtin.set_fact:
+    thenn_latest_version: "{{ thenn_latest_release.json.tag_name | regex_replace('^v', '') }}"
+
+- name: Check installed thenn version
+  become_user: "{{ target_user }}"
+  ansible.builtin.command: "{{ user_home }}/.local/bin/thenn --version"
+  register: thenn_installed
+  changed_when: false
+  failed_when: false
+
+- name: Ensure user-local binary directory exists
+  become_user: "{{ target_user }}"
+  ansible.builtin.file:
+    path: "{{ user_home }}/.local/bin"
+    state: directory
+    mode: "0755"
+
+- name: Install latest thenn release
+  become_user: "{{ target_user }}"
+  ansible.builtin.unarchive:
+    src: "https://github.com/mitchell-wallace/thenn/releases/download/v{{ thenn_latest_version }}/thenn_{{ thenn_latest_version }}_linux_{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}.tar.gz"
+    dest: "{{ user_home }}/.local/bin"
+    remote_src: true
+    include:
+      - thenn
+    mode: "0755"
+  when: thenn_installed.rc != 0 or (thenn_installed.stdout | trim) != thenn_latest_version
 
 # --- rover-halt (self-deallocate) -------------------------------------------
 - name: Install rover-halt

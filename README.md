@@ -47,7 +47,7 @@ rover (Go CLI)
 
 infra/bicep/main.bicep        size profiles, network, VM, cloud-init
 infra/cloud-init/             minimal first-boot prep for Ansible
-ansible/roles/dune/           Docker, dune, zsh+p10k, gh, lazydocker, gitui, rover-halt, ...
+ansible/roles/dune/           Docker Sandboxes, dune, thenn, mise, agent CLIs, shell tools, ...
 ansible/roles/tailscale/      optional tailnet join + Tailscale SSH (opt-in)
 scripts/azure/                up · down · status · ssh · ip (usable standalone)
 ```
@@ -239,10 +239,16 @@ rover provision
 ```
 
 Runs `ansible/playbook.yml` against the live VM (ad-hoc inventory, no inventory
-file needed). Installs and configures: Docker Engine + Compose, lazydocker, git,
-gh, gitui, micro, zsh + Powerlevel10k, common CLI tools, and `dune`. Adds your
-user to the `docker` group, sets zsh as the default shell, verifies Docker works,
-and is fully idempotent (re-run any time).
+file needed). Installs and configures: Docker Engine + Compose and Docker
+Sandboxes, lazydocker, git, gh, gitui, micro, zsh + Powerlevel10k, common CLI
+tools, `mise`, Claude Code, `dune`, and the latest `thenn` release. Adds your user
+to the `docker` and `kvm` groups, sets zsh as the default shell, verifies Docker
+works, and is fully idempotent (re-run any time).
+
+Docker's interactive setup suggests `newgrp kvm` to update the current shell's
+supplementary groups. Provisioning does not start that persistent subshell;
+Ansible resets its SSH connection after changing group membership, which gives
+the remainder of the run a fresh login with both groups immediately available.
 
 ## Connecting to the VM
 

@@ -353,6 +353,42 @@
       "createdAt": "2026-07-10T07:23:46.98888778Z",
       "updatedAt": "2026-07-10T07:48:28.539897298Z",
       "completedAt": "2026-07-10T07:48:28.539897298Z"
+    },
+    {
+      "kind": "lap",
+      "id": "rove-d5d4",
+      "title": "Provisioning: docker-sbx, claude code, thenn, mise",
+      "description": "Add to rover's ansible provisioning (read ansible/roles/ layout and follow existing role conventions; user-specified install steps are authoritative):\n1. docker + docker-sbx: usermod -aG kvm for the login user; `curl -fsSL https://get.docker.com | REPO_ONLY=1 sh` (repo setup only), then apt install docker-sbx. Idempotent (check-before-install), and kvm group membership must not require re-login to break provisioning (document if newgrp semantics matter).\n2. claude code CLI: install per its official install path (research the current recommended non-interactive install; likely npm/native installer via mise-managed node).\n3. thenn: install/update latest release binary (mirror how other self-hosted tools are installed in the dune role; use its install.sh or gh release download).\n4. mise: add to default provisioning (it exists on hosts already set up manually; make it default).\nGates: just build, just test, just lint, shellcheck on any new shell, ansible-playbook --syntax-check. Do not run real provisioning.",
+      "assignee": "senior",
+      "isDone": true,
+      "order": 65536,
+      "createdAt": "2026-07-11T13:03:50.17197816Z",
+      "updatedAt": "2026-07-11T13:07:50.996582619Z",
+      "completedAt": "2026-07-11T13:07:50.996582619Z"
+    },
+    {
+      "kind": "lap",
+      "id": "rove-2c8a",
+      "title": "Swapfile provisioning + targeted resize handling",
+      "description": "Context: current instance has a manually-added swapfile; provisioning should own it. User decision: targeted script on memory change, NOT full re-provision.\n1. Provision-time: create swapfile sized at 1/2 of VM RAM (detect at runtime), enable, persist in fstab. Idempotent; skip if a correctly-sized swapfile exists.\n2. Targeted resize path: a standalone script/tag (e.g. ansible tag or scripts/ entry) that ONLY reconfigures the swapfile for the current RAM size. Wire into rover's resize flow: after a successful VM size change, rover runs (or clearly offers) the targeted swap update — inspect how resize/up flows report size changes and hook there. No full re-provision required.\n3. Handle: existing manual swapfile (adopt or replace safely), insufficient disk, swap currently in use (swapoff before resize).\nGates: just build, just test, just lint, shellcheck, ansible syntax check. Unit-test the size-calculation/decision seams where the code structure allows.",
+      "assignee": "senior",
+      "isDone": false,
+      "order": 131072,
+      "createdAt": "2026-07-11T13:03:50.188140236Z",
+      "updatedAt": "2026-07-11T13:03:50.188140236Z",
+      "completedAt": null
+    },
+    {
+      "kind": "lap",
+      "id": "rove-c68e",
+      "title": "Verify provisioning additions: evidence report",
+      "description": "Verify both preceding laps against their requirements: read diffs, run all gates, dry-inspect ansible tasks (--syntax-check; --check mode against localhost only if safe and side-effect-free). Confirm idempotency guards, the swapfile decision logic (unit seams), and that the resize hook triggers only the targeted swap play. Write tmp/verify-provisioning-2026-07-11.md with requirement-by-requirement pass/fail. Report, don't fix.",
+      "assignee": "verify",
+      "isDone": false,
+      "order": 196608,
+      "createdAt": "2026-07-11T13:03:50.210797464Z",
+      "updatedAt": "2026-07-11T13:03:50.210797464Z",
+      "completedAt": null
     }
   ]
 }
