@@ -16,3 +16,4 @@
 {"ts":"2026-07-11T13:03:50Z","event":"claimed","cmd":"claim","file":"laps.json","lap":"rove-d5d4","title":"Provisioning: docker-sbx, claude code, thenn, mise","assignee":"senior","scope":"root","detail":{},"session":""}
 {"ts":"2026-07-11T13:07:51Z","event":"completed","cmd":"done","file":"laps.json","lap":"rove-d5d4","title":"Provisioning: docker-sbx, claude code, thenn, mise","assignee":"senior","scope":"root","detail":{},"session":""}
 {"ts":"2026-07-11T13:07:51Z","event":"unclaimed","cmd":"done","file":"laps.json","lap":"rove-d5d4","title":"Provisioning: docker-sbx, claude code, thenn, mise","assignee":"senior","scope":"root","detail":{"reason":"completed"},"session":""}
+{"ts":"2026-07-11T13:08:14Z","event":"claimed","cmd":"claim","file":"laps.json","lap":"rove-2c8a","title":"Swapfile provisioning + targeted resize handling","assignee":"senior","scope":"root","detail":{},"session":""}

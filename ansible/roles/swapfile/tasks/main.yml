@@ -1,0 +1,11 @@
+---
+- name: Install Rover swapfile manager
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/swapfile"
+    dest: /usr/local/sbin/rover-swapfile
+    mode: "0755"
+
+- name: Configure swapfile for current VM memory
+  ansible.builtin.command: /usr/local/sbin/rover-swapfile apply
+  register: rover_swapfile
+  changed_when: "'swapfile: configured' in rover_swapfile.stdout"

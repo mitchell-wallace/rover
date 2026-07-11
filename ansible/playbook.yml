@@ -23,6 +23,7 @@
     - name: Gather facts
       ansible.builtin.setup:
   roles:
+    - swapfile
     - dune
     - locale
     - tailscale

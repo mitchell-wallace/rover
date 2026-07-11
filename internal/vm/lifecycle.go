@@ -31,6 +31,7 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 
 	current, err := s.Azure.Status()
 	fresh := err == nil && !current.Exists
+	resizing := err == nil && current.Exists && current.VMSize != "" && current.VMSize != profile.SKU
 	if err == nil && current.Running() && current.VMSize != "" && current.VMSize != profile.SKU {
 		ui.Warn("A VM is already running as %s. Rover manages one VM at a time;", current.VMSize)
 		ui.Warn("continuing will redeploy/resize it in place to %s.", profile.SKU)
@@ -93,7 +94,18 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 		restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		if err := s.Conn.Restore(restoreCtx); err != nil {
+			if resizing {
+				return fmt.Errorf("VM resized, but connectivity restore failed before the swapfile update: %w; after restoring access, run 'rover provision --swapfile-only'", err)
+			}
 			return err
+		}
+	}
+
+	if resizing {
+		fmt.Println()
+		ui.Info("VM memory size changed — updating only the swapfile (no full re-provision)...")
+		if err := s.Provision.ResizeSwapfile(ctx); err != nil {
+			return fmt.Errorf("VM resized, but swapfile update failed: %w; retry with 'rover provision --swapfile-only'", err)
 		}
 	}
 

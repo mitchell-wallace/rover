@@ -29,6 +29,7 @@ type connRestorer interface {
 
 type provisioner interface {
 	Run(ctx context.Context) error
+	ResizeSwapfile(ctx context.Context) error
 }
 
 // SSHOptions controls one public SSH invocation.
