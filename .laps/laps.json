@@ -384,11 +384,11 @@
       "title": "Verify provisioning additions: evidence report",
       "description": "Verify both preceding laps against their requirements: read diffs, run all gates, dry-inspect ansible tasks (--syntax-check; --check mode against localhost only if safe and side-effect-free). Confirm idempotency guards, the swapfile decision logic (unit seams), and that the resize hook triggers only the targeted swap play. Write tmp/verify-provisioning-2026-07-11.md with requirement-by-requirement pass/fail. Report, don't fix.",
       "assignee": "verify",
-      "isDone": false,
+      "isDone": true,
       "order": 196608,
       "createdAt": "2026-07-11T13:03:50.210797464Z",
-      "updatedAt": "2026-07-11T13:03:50.210797464Z",
-      "completedAt": null
+      "updatedAt": "2026-07-11T13:20:56.042990451Z",
+      "completedAt": "2026-07-11T13:20:56.042990451Z"
     }
   ]
 }
