@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Configure Rover's swapfile to half of the VM's currently visible RAM.
+set -euo pipefail
+
+SWAPFILE="${ROVER_SWAPFILE:-/swapfile}"
+FSTAB="${ROVER_FSTAB:-/etc/fstab}"
+MEMINFO="${ROVER_MEMINFO:-/proc/meminfo}"
+PROC_SWAPS="${ROVER_PROC_SWAPS:-/proc/swaps}"
+
+die() {
+  printf 'swapfile: %s\n' "$*" >&2
+  exit 1
+}
+
+memory_kib() {
+  awk '$1 == "MemTotal:" { print $2; found=1; exit } END { if (!found) exit 1 }' "${MEMINFO}"
+}
+
+target_bytes() {
+  local kib
+  kib="$(memory_kib)" || die "could not read MemTotal from ${MEMINFO}"
+  [ "${kib}" -ge 2 ] || die "invalid MemTotal in ${MEMINFO}"
+  printf '%s\n' "$((kib * 1024 / 2))"
+}
+
+current_bytes() {
+  if [ -f "${SWAPFILE}" ]; then
+    stat -c '%s' "${SWAPFILE}"
+  else
+    printf '0\n'
+  fi
+}
+
+is_active() {
+  if [ -n "${ROVER_ACTIVE_SWAPFILES+x}" ]; then
+    tr ':' '\n' <<<"${ROVER_ACTIVE_SWAPFILES}" | grep -Fxq -- "${SWAPFILE}"
+    return
+  fi
+  awk -v path="${SWAPFILE}" 'NR > 1 && $1 == path { found=1 } END { exit !found }' "${PROC_SWAPS}"
+}
+
+decision() {
+  local target current action active=no
+  target="$(target_bytes)"
+  current="$(current_bytes)"
+  action=create
+  if [ "${current}" -eq "${target}" ]; then
+    action=keep
+  elif [ "${current}" -gt 0 ]; then
+    action=resize
+  fi
+  if is_active; then
+    active=yes
+  fi
+  printf 'action=%s target_bytes=%s current_bytes=%s active=%s\n' \
+    "${action}" "${target}" "${current}" "${active}"
+}
+
+ensure_disk_space() {
+  local target current allocated available parent
+  target="$1"
+  current="$(current_bytes)"
+  parent="$(dirname "${SWAPFILE}")"
+  available="$(df -P -B1 "${parent}" | awk 'NR == 2 { print $4 }')"
+  allocated=0
+  if [ "${current}" -gt 0 ]; then
+    allocated="$(du -B1 "${SWAPFILE}" | awk '{ print $1 }')"
+  fi
+  if [ "${target}" -gt $((available + allocated)) ]; then
+    die "insufficient disk space for $((target / 1024 / 1024)) MiB swapfile ($((available / 1024 / 1024)) MiB free)"
+  fi
+}
+
+ensure_fstab() {
+  local tmp
+  tmp="$(mktemp "${FSTAB}.rover.XXXXXX")"
+  awk -v path="${SWAPFILE}" '$1 != path { print }' "${FSTAB}" >"${tmp}"
+  printf '%s none swap sw 0 0\n' "${SWAPFILE}" >>"${tmp}"
+  chmod --reference="${FSTAB}" "${tmp}"
+  mv -f "${tmp}" "${FSTAB}"
+}
+
+apply() {
+  local target current changed=no signature tmp
+  [ "$(id -u)" -eq 0 ] || die "must run as root"
+  target="$(target_bytes)"
+  current="$(current_bytes)"
+
+  if [ "${current}" -ne "${target}" ]; then
+    ensure_disk_space "${target}"
+    if is_active; then
+      swapoff "${SWAPFILE}"
+    fi
+    rm -f "${SWAPFILE}"
+    tmp="${SWAPFILE}.rover-new"
+    trap 'rm -f "${tmp:-}"' EXIT
+    rm -f "${tmp}"
+    if ! fallocate -l "${target}" "${tmp}"; then
+      rm -f "${tmp}"
+      die "could not allocate ${target} bytes for ${SWAPFILE}"
+    fi
+    chmod 0600 "${tmp}"
+    mkswap "${tmp}" >/dev/null
+    mv -f "${tmp}" "${SWAPFILE}"
+    trap - EXIT
+    changed=yes
+  else
+    chmod 0600 "${SWAPFILE}"
+    signature="$(blkid -p -s TYPE -o value "${SWAPFILE}" 2>/dev/null || true)"
+    if [ "${signature}" != "swap" ]; then
+      if is_active; then
+        swapoff "${SWAPFILE}"
+      fi
+      mkswap "${SWAPFILE}" >/dev/null
+      changed=yes
+    fi
+  fi
+
+  ensure_fstab
+  if ! is_active; then
+    swapon "${SWAPFILE}"
+    changed=yes
+  fi
+
+  if [ "${changed}" = yes ]; then
+    printf 'swapfile: configured %s bytes at %s\n' "${target}" "${SWAPFILE}"
+  else
+    printf 'swapfile: unchanged (%s bytes at %s)\n' "${target}" "${SWAPFILE}"
+  fi
+}
+
+case "${1:-apply}" in
+  apply) apply ;;
+  plan) decision ;;
+  *) die "usage: $0 [apply|plan]" ;;
+esac

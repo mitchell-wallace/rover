@@ -10,6 +10,7 @@ import (
 func init() {
 	var timezoneFlag string
 	var localeFlag string
+	var swapfileOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "provision",
@@ -20,6 +21,9 @@ func init() {
 			a, err := loadContext()
 			if err != nil {
 				return err
+			}
+			if swapfileOnly {
+				return a.provision.ResizeSwapfile(context.Background())
 			}
 			if timezoneFlag != "" {
 				if err := locale.ValidateTimezone(timezoneFlag); err != nil {
@@ -45,5 +49,8 @@ func init() {
 	}
 	cmd.Flags().StringVar(&timezoneFlag, "timezone", "", "set the VM timezone (IANA zone, e.g. America/New_York)")
 	cmd.Flags().StringVar(&localeFlag, "locale", "", "set the VM locale (e.g. en_US.UTF-8)")
+	cmd.Flags().BoolVar(&swapfileOnly, "swapfile-only", false, "resize only the swapfile for the VM's current memory")
+	cmd.MarkFlagsMutuallyExclusive("swapfile-only", "timezone")
+	cmd.MarkFlagsMutuallyExclusive("swapfile-only", "locale")
 	rootCmd.AddCommand(cmd)
 }

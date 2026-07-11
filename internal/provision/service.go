@@ -62,11 +62,8 @@ func (s *Service) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !info.Exists {
-		return fmt.Errorf("no VM provisioned; run 'rover up' first")
-	}
-	if !info.Running() {
-		return fmt.Errorf("VM is %q, not running; run 'rover up' to start it", info.PowerState)
+	if err := requireRunning(info); err != nil {
+		return err
 	}
 
 	var authKey string

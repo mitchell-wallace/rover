@@ -1,0 +1,11 @@
+---
+- name: Resize only the Rover VM swapfile
+  hosts: all
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - name: Wait for SSH to accept connections
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+  roles:
+    - swapfile

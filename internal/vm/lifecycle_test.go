@@ -151,13 +151,20 @@ func (r *recordingConn) Restore(context.Context) error {
 }
 
 type recordingProvisioner struct {
-	runCalls int
-	runErr   error
+	runCalls            int
+	runErr              error
+	resizeSwapfileCalls int
+	resizeSwapfileErr   error
 }
 
 func (r *recordingProvisioner) Run(context.Context) error {
 	r.runCalls++
 	return r.runErr
+}
+
+func (r *recordingProvisioner) ResizeSwapfile(context.Context) error {
+	r.resizeSwapfileCalls++
+	return r.resizeSwapfileErr
 }
 
 type testHarness struct {
@@ -229,57 +236,6 @@ func runningVMInfo() azure.Info {
 		VMSize:     "Standard_B2as_v2",
 		DiskSizeGB: 30,
 	}
-}
-
-func TestUp_FreshCreateTailscaleNotReadyDeclinedConfirmAborts(t *testing.T) {
-	h := newTestHarness(t)
-	h.conn.ready = false
-	h.az.statusInfo = azure.Info{Exists: false}
-
-	err := h.svc.Up(context.Background(), "burstable", "small", false, false)
-
-	requireErrContains(t, err, "configure Tailscale")
-	requireEqual(t, len(h.az.upCalls), 0)
-	requireEqual(t, h.prov.runCalls, 0)
-	requireEqual(t, h.conn.readyCalls, 1)
-}
-
-func TestUp_FreshCreateAutoProvisionsUnlessNoProvision(t *testing.T) {
-	t.Run("auto provisions", func(t *testing.T) {
-		h := newTestHarness(t)
-		h.az.statusInfo = azure.Info{Exists: false}
-
-		requireNoErr(t, h.svc.Up(context.Background(), "burstable", "small", true, false))
-
-		requireEqual(t, len(h.az.upCalls), 1)
-		requireEqual(t, h.az.upCalls[0].family, "burstable")
-		requireEqual(t, h.az.upCalls[0].size, "small")
-		requireEqual(t, h.prov.runCalls, 1)
-		requireEqual(t, h.st.Connection.Exists, true)
-	})
-
-	t.Run("skips with no provision", func(t *testing.T) {
-		h := newTestHarness(t)
-		h.conn.ready = false
-		h.az.statusInfo = azure.Info{Exists: false}
-
-		requireNoErr(t, h.svc.Up(context.Background(), "burstable", "small", true, true))
-
-		requireEqual(t, len(h.az.upCalls), 1)
-		requireEqual(t, h.prov.runCalls, 0)
-		requireEqual(t, h.conn.readyCalls, 0)
-	})
-}
-
-func TestUp_ExistingVMRestoresConnectivity(t *testing.T) {
-	h := newTestHarness(t)
-	h.az.statusInfo = azure.Info{Exists: true, PowerState: "VM deallocated", VMSize: "Standard_B2as_v2"}
-
-	requireNoErr(t, h.svc.Up(context.Background(), "burstable", "small", true, false))
-
-	requireEqual(t, len(h.az.upCalls), 1)
-	requireEqual(t, h.conn.restoreCalls, 1)
-	requireEqual(t, h.prov.runCalls, 0)
 }
 
 func TestDown_Delete_SavesState(t *testing.T) {

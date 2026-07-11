@@ -33,6 +33,11 @@ autoload -Uz compinit && compinit -u
 # Path: include user-local bins (dune installs here).
 export PATH="$HOME/.local/bin:$PATH"
 
+# mise: activate runtime/tool version management for interactive shells.
+if command -v mise &>/dev/null; then
+  eval "$(mise activate zsh)"
+fi
+
 # Theme.
 source "$HOME/.powerlevel10k/powerlevel10k.zsh-theme"
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh

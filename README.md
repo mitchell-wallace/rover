@@ -47,7 +47,7 @@ rover (Go CLI)
 
 infra/bicep/main.bicep        size profiles, network, VM, cloud-init
 infra/cloud-init/             minimal first-boot prep for Ansible
-ansible/roles/dune/           Docker, dune, zsh+p10k, gh, lazydocker, gitui, rover-halt, ...
+ansible/roles/dune/           Docker Sandboxes, dune, thenn, mise, agent CLIs, shell tools, ...
 ansible/roles/tailscale/      optional tailnet join + Tailscale SSH (opt-in)
 scripts/azure/                up · down · status · ssh · ip (usable standalone)
 ```
@@ -198,8 +198,9 @@ redeploys/resizes the same VM in place — Rover enforces one VM at a time.
 On a **fresh create** (no VM yet), `up` then **provisions automatically** and, if
 Tailscale is set up, **locks the VM down to Tailscale-only SSH** (see
 [Tailscale](#tailscale-optional)). Pass `--no-provision` to skip the automatic
-provision. Re-running `up` on an existing VM (resize/redeploy) does **not**
-auto-provision — run `rover provision` yourself if needed.
+provision. Re-running `up` on an existing VM does **not** run the full playbook.
+When the compute size changes, Rover runs only the targeted swapfile playbook
+so swap tracks the new RAM size; other redeploys leave provisioning untouched.
 
 If Tailscale isn't configured/connected when you create a VM, `up` warns that
 lockdown can't engage and asks before creating a VM that stays reachable on the
@@ -236,13 +237,26 @@ Notes:
 
 ```sh
 rover provision
+rover provision --swapfile-only  # update only swap after a manual size change
 ```
 
 Runs `ansible/playbook.yml` against the live VM (ad-hoc inventory, no inventory
-file needed). Installs and configures: Docker Engine + Compose, lazydocker, git,
-gh, gitui, micro, zsh + Powerlevel10k, common CLI tools, and `dune`. Adds your
-user to the `docker` group, sets zsh as the default shell, verifies Docker works,
-and is fully idempotent (re-run any time).
+file needed). Installs and configures: Docker Engine + Compose and Docker
+Sandboxes, lazydocker, git, gh, gitui, micro, zsh + Powerlevel10k, common CLI
+tools, `mise`, Claude Code, `dune`, and the latest `thenn` release. Adds your user
+to the `docker` and `kvm` groups, sets zsh as the default shell, verifies Docker
+works, and is fully idempotent (re-run any time).
+
+Provisioning also manages `/swapfile` at half of the VM's runtime-detected RAM,
+enables it, and persists it in `/etc/fstab`. Existing manual swapfiles are
+adopted when already the right size or safely replaced (including `swapoff`
+when active) when the VM's memory changes. The swapfile-only command runs
+`ansible/swapfile.yml`; it does not re-run the rest of provisioning.
+
+Docker's interactive setup suggests `newgrp kvm` to update the current shell's
+supplementary groups. Provisioning does not start that persistent subshell;
+Ansible resets its SSH connection after changing group membership, which gives
+the remainder of the run a fresh login with both groups immediately available.
 
 ## Connecting to the VM
 

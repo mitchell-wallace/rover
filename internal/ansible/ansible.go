@@ -19,6 +19,7 @@ type Params struct {
 	PrivateKey string
 	AssetDir   string
 	ExtraVars  map[string]string
+	Playbook   string
 }
 
 // Available reports whether ansible-playbook is on PATH.
@@ -37,10 +38,14 @@ func Provision(p Params) error {
 	}
 
 	ansibleDir := filepath.Join(p.AssetDir, "ansible")
+	playbook := p.Playbook
+	if playbook == "" {
+		playbook = "playbook.yml"
+	}
 	args := []string{
 		"-i", p.Host + ",",
 		"-u", p.User,
-		"playbook.yml",
+		playbook,
 	}
 	if p.PrivateKey != "" {
 		args = append(args, "--private-key", p.PrivateKey)
