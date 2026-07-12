@@ -316,13 +316,13 @@
 # the root-owned scaffold and the narrow sudo grant. A human fills in the
 # key content post-provision (state: touch never overwrites existing content,
 # so re-running the playbook won't clobber a key that's already in place).
-- name: Ensure /etc/codex directory exists (root-only)
+- name: Ensure /etc/codex directory exists (world-traversable; key file inside is root-only)
   ansible.builtin.file:
     path: /etc/codex
     state: directory
     owner: root
     group: root
-    mode: "0700"
+    mode: "0755"
 
 - name: Ensure Linear MCP key file exists (root-only; content untouched if present)
   ansible.builtin.file:
