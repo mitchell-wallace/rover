@@ -72,11 +72,14 @@ func init() {
 
 			familyExplicit := cmd.Flags().Changed("family")
 			sizeExplicit := cmd.Flags().Changed("size") || len(args) == 1
-			family, size, err = selectUpCompute(ctx, family, size, familyExplicit, sizeExplicit, assumeYes, ui.Interactive())
+			rememberedFamily, rememberedSize := family, size
+			interactive := ui.Interactive()
+			family, size, err = selectUpCompute(ctx, family, size, familyExplicit, sizeExplicit, assumeYes, interactive)
 			if err != nil {
 				return err
 			}
-			return a.vm.Up(ctx, family, size, assumeYes, noProvision)
+			source := upSelectionSource(rememberedFamily, rememberedSize, family, size, familyExplicit, sizeExplicit, assumeYes, interactive)
+			return a.vm.Up(ctx, family, size, source, assumeYes, noProvision)
 		},
 	}
 	cmd.Flags().StringVar(&familyFlag, "family", "", "compute family: "+strings.Join(sizes.Families, "|"))
@@ -86,6 +89,16 @@ func init() {
 	cmd.Flags().StringVar(&timezoneFlag, "timezone", "", "set the VM timezone (IANA zone, e.g. America/New_York)")
 	cmd.Flags().StringVar(&localeFlag, "locale", "", "set the VM locale (e.g. en_US.UTF-8)")
 	rootCmd.AddCommand(cmd)
+}
+
+func upSelectionSource(beforeFamily, beforeSize, family, size string, familyExplicit, sizeExplicit, assumeYes, interactive bool) string {
+	if familyExplicit || sizeExplicit {
+		return "explicit-flag"
+	}
+	if interactive && !assumeYes && (family != beforeFamily || size != beforeSize) {
+		return "customized"
+	}
+	return "remembered"
 }
 
 func selectUpCompute(ctx context.Context, family, size string, familyExplicit, sizeExplicit, assumeYes, interactive bool) (string, string, error) {

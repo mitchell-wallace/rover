@@ -3,16 +3,27 @@ package provision
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
 
 // ResizeSwapfile runs only the swapfile playbook against the current VM. It is
 // intentionally separate from Run so compute resizes never trigger a full
 // provisioning pass.
-func (s *Service) ResizeSwapfile(ctx context.Context) error {
+func (s *Service) ResizeSwapfile(ctx context.Context) (err error) {
+	started := time.Now()
+	phase := "vm_info"
+	defer func() {
+		sink := s.telemetrySink()
+		sink.RecordProvision(telemetry.ProvisionEvent{Mode: "swapfile", Success: err == nil, Duration: time.Since(started)})
+		if err != nil {
+			sink.RecordDiagnostic(telemetry.DiagnosticEvent{Command: "provision", Category: phase + "_failure"})
+		}
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -20,6 +31,7 @@ func (s *Service) ResizeSwapfile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	phase = "vm_state"
 	if err := requireRunning(info); err != nil {
 		return err
 	}
@@ -32,6 +44,7 @@ func (s *Service) ResizeSwapfile(ctx context.Context) error {
 		ui.Info("Updating swapfile on %s (%s) over public IP...", info.VMName, host)
 	}
 	s.waiter()(ctx, host, s.State.SSHPort())
+	phase = "ansible"
 	if err := s.ansible()(ansible.Params{
 		Host:       host,
 		User:       s.State.AdminUsername,

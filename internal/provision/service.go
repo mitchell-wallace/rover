@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/mitchell-wallace/rover/internal/ansible"
 	"github.com/mitchell-wallace/rover/internal/azure"
@@ -13,6 +14,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/shellsafe"
 	"github.com/mitchell-wallace/rover/internal/stateutil"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
 
@@ -27,14 +29,15 @@ type SSHWaiter func(ctx context.Context, host string, port int)
 
 // Service runs Ansible provisioning against a Rover VM.
 type Service struct {
-	State    *config.State
-	Azure    AzureProvisioner
-	TS       tailscale.Client
-	AssetDir string
-	Ansible  func(ansible.Params) error
-	Wait     SSHWaiter
-	Timezone string
-	Locale   string
+	State     *config.State
+	Azure     AzureProvisioner
+	TS        tailscale.Client
+	AssetDir  string
+	Ansible   func(ansible.Params) error
+	Wait      SSHWaiter
+	Timezone  string
+	Locale    string
+	Telemetry telemetry.Sink
 }
 
 // New constructs a Service with production defaults for injectable seams.
@@ -53,7 +56,16 @@ func New(st *config.State, az AzureProvisioner, ts tailscale.Client, assetDir st
 
 // Run provisions the VM with Ansible, then verifies and locks down Tailscale
 // access when a Tailscale auth key was used.
-func (s *Service) Run(ctx context.Context) error {
+func (s *Service) Run(ctx context.Context) (err error) {
+	started := time.Now()
+	phase := "vm_info"
+	defer func() {
+		sink := s.telemetrySink()
+		sink.RecordProvision(telemetry.ProvisionEvent{Mode: "full", Success: err == nil, Duration: time.Since(started)})
+		if err != nil {
+			sink.RecordDiagnostic(telemetry.DiagnosticEvent{Command: "provision", Category: phase + "_failure"})
+		}
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -72,6 +84,7 @@ func (s *Service) Run(ctx context.Context) error {
 		authKey = sanitizeAuthKey(key)
 		ui.Info("TS_AUTHKEY detected in environment — VM will join your tailnet as %q.", s.State.TSHostname())
 	} else if s.State.HasTSOAuth() {
+		phase = "tailscale_auth_key"
 		ui.Info("Generating Tailscale auth key via OAuth client for hostname %q...", s.State.TSHostname())
 		key, err := s.TS.GetAuthKey(s.State.TSClientID(), s.State.TSClientSecret(), s.State.TSTagSlice())
 		if err != nil {
@@ -84,6 +97,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	if authKey != "" {
+		phase = "tailscale_environment"
 		if err := os.Setenv("TS_AUTHKEY", authKey); err != nil {
 			return fmt.Errorf("set TS_AUTHKEY: %w", err)
 		}
@@ -102,6 +116,7 @@ func (s *Service) Run(ctx context.Context) error {
 
 	s.waiter()(ctx, host, s.State.SSHPort())
 
+	phase = "ansible"
 	err = s.ansible()(ansible.Params{
 		Host:       host,
 		User:       s.State.AdminUsername,
@@ -123,7 +138,9 @@ func (s *Service) Run(ctx context.Context) error {
 	s.State.Locale = s.Locale
 	if err := s.State.Save(); err != nil {
 		ui.Warn("Failed to save timezone/locale to state: %v", err)
+		s.recordDiagnostic("state_save_failure")
 	}
+	phase = "state_sync"
 	if err := stateutil.SyncConnection(s.State, info); err != nil {
 		return err
 	}
@@ -139,10 +156,12 @@ func (s *Service) Run(ctx context.Context) error {
 				ui.Info("Locking down: closing public SSH (VM stays reachable over Tailscale)...")
 				if err := s.Azure.SetPublicSSH(false); err != nil {
 					ui.Warn("Failed to close public SSH: %v — public SSH left OPEN on port %d.", err, s.State.SSHPort())
+					s.recordDiagnostic("public_ssh_lockdown_failure")
 				} else {
 					s.State.PublicSSHClosed = true
 					if err := s.State.Save(); err != nil {
 						ui.Warn("Failed to save state after closing public SSH: %v", err)
+						s.recordDiagnostic("state_save_failure")
 					} else {
 						ui.Info("Public SSH closed. The VM is now reachable only over Tailscale ('rover connect').")
 					}
@@ -150,11 +169,23 @@ func (s *Service) Run(ctx context.Context) error {
 			}
 		} else {
 			ui.Warn("Tailscale verification failed: peer offline, not found, or unreachable — keeping public SSH OPEN on port %d.", s.State.SSHPort())
+			s.recordDiagnostic("tailscale_verification_failure")
 		}
 	}
 
 	ui.Info("Connect with 'rover ssh' (or 'rover connect' if Tailscale is active) and run 'dune'.")
 	return nil
+}
+
+func (s *Service) telemetrySink() telemetry.Sink {
+	if s.Telemetry == nil {
+		return telemetry.NoopSink{}
+	}
+	return s.Telemetry
+}
+
+func (s *Service) recordDiagnostic(category string) {
+	s.telemetrySink().RecordDiagnostic(telemetry.DiagnosticEvent{Command: "provision", Category: category})
 }
 
 func (s *Service) ansible() func(ansible.Params) error {

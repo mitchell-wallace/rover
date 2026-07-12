@@ -9,6 +9,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 )
 
 var _ AzureLifecycle = (*fakeAzure)(nil)
@@ -157,6 +158,24 @@ type recordingProvisioner struct {
 	resizeSwapfileErr   error
 }
 
+type recordingTelemetry struct {
+	up          []telemetry.UpEvent
+	provision   []telemetry.ProvisionEvent
+	diagnostics []telemetry.DiagnosticEvent
+}
+
+func (r *recordingTelemetry) RecordUp(event telemetry.UpEvent) {
+	r.up = append(r.up, event)
+}
+
+func (r *recordingTelemetry) RecordProvision(event telemetry.ProvisionEvent) {
+	r.provision = append(r.provision, event)
+}
+
+func (r *recordingTelemetry) RecordDiagnostic(event telemetry.DiagnosticEvent) {
+	r.diagnostics = append(r.diagnostics, event)
+}
+
 func (r *recordingProvisioner) Run(context.Context) error {
 	r.runCalls++
 	return r.runErr
@@ -174,6 +193,7 @@ type testHarness struct {
 	ts   *fakeTailscale
 	conn *recordingConn
 	prov *recordingProvisioner
+	tel  *recordingTelemetry
 }
 
 func newTestHarness(t *testing.T) *testHarness {
@@ -201,14 +221,16 @@ func newTestHarness(t *testing.T) *testHarness {
 	ts := &fakeTailscale{}
 	conn := &recordingConn{ready: true}
 	prov := &recordingProvisioner{}
+	tel := &recordingTelemetry{}
 	svc := &Service{
 		State:     st,
 		Azure:     az,
 		TS:        ts,
 		Conn:      conn,
 		Provision: prov,
+		Telemetry: tel,
 	}
-	return &testHarness{svc: svc, st: st, az: az, ts: ts, conn: conn, prov: prov}
+	return &testHarness{svc: svc, st: st, az: az, ts: ts, conn: conn, prov: prov, tel: tel}
 }
 
 func forceNonInteractive(t *testing.T) {

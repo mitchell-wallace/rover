@@ -83,3 +83,26 @@ func TestSizeRememberChoicesFollowFamilyAvailability(t *testing.T) {
 		}
 	}
 }
+
+func TestUpSelectionSource(t *testing.T) {
+	tests := []struct {
+		name                                                 string
+		beforeFamily, beforeSize, family, size               string
+		familyExplicit, sizeExplicit, assumeYes, interactive bool
+		want                                                 string
+	}{
+		{name: "remembered prompt choices", beforeFamily: "burstable", beforeSize: "small", family: "burstable", size: "small", interactive: true, want: "remembered"},
+		{name: "customized prompt choice", beforeFamily: "burstable", beforeSize: "small", family: "balanced", size: "small", interactive: true, want: "customized"},
+		{name: "explicit family flag", beforeFamily: "burstable", beforeSize: "small", family: "balanced", size: "small", familyExplicit: true, interactive: true, want: "explicit-flag"},
+		{name: "explicit size argument", beforeFamily: "burstable", beforeSize: "small", family: "burstable", size: "large", sizeExplicit: true, want: "explicit-flag"},
+		{name: "automation uses remembered config", beforeFamily: "burstable", beforeSize: "small", family: "burstable", size: "small", assumeYes: true, interactive: true, want: "remembered"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := upSelectionSource(tt.beforeFamily, tt.beforeSize, tt.family, tt.size, tt.familyExplicit, tt.sizeExplicit, tt.assumeYes, tt.interactive)
+			if got != tt.want {
+				t.Fatalf("upSelectionSource = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
