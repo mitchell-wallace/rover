@@ -4,9 +4,12 @@ go 1.26
 
 require (
 	github.com/charmbracelet/huh v1.0.0
+	github.com/mitchell-wallace/chassis v0.0.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.43.0
 )
+
+replace github.com/mitchell-wallace/chassis => ../chassis
 
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
