@@ -311,6 +311,36 @@
     dest: "{{ user_home }}/.zshrc"
     mode: "0644"
 
+# --- Codex: Linear MCP key store --------------------------------------------
+# The key value itself is never templated here — these tasks only provision
+# the root-owned scaffold and the narrow sudo grant. A human fills in the
+# key content post-provision (state: touch never overwrites existing content,
+# so re-running the playbook won't clobber a key that's already in place).
+- name: Ensure /etc/codex directory exists (world-traversable; key file inside is root-only)
+  ansible.builtin.file:
+    path: /etc/codex
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure Linear MCP key file exists (root-only; content untouched if present)
+  ansible.builtin.file:
+    path: /etc/codex/linear.key
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Allow {{ target_user }} passwordless sudo to read the Linear MCP key
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/codex-linear-key
+    content: "{{ target_user }} ALL=(root) NOPASSWD: /usr/bin/cat /etc/codex/linear.key\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
 # --- Tool configurations (baked into the role, not read from the host) ------
 - name: Ensure user config directories exist
   become_user: "{{ target_user }}"

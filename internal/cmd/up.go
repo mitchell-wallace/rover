@@ -2,12 +2,17 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"strings"
 
+	"github.com/mitchell-wallace/chassis/remember"
 	"github.com/mitchell-wallace/rover/internal/locale"
 	"github.com/mitchell-wallace/rover/internal/sizes"
+	"github.com/mitchell-wallace/rover/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+var runRememberPrompt = remember.Run
 
 func init() {
 	var sizeFlag string
@@ -25,7 +30,8 @@ func init() {
 			"Sizes:    " + strings.Join(sizes.Order, " | ") + " (xsmall is burstable-only).",
 		ValidArgs: sizes.Order,
 		Args:      cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
 			a, err := loadContext()
 			if err != nil {
 				return err
@@ -63,7 +69,17 @@ func init() {
 			if size == "" {
 				size = "small"
 			}
-			return a.vm.Up(context.Background(), family, size, assumeYes, noProvision)
+
+			familyExplicit := cmd.Flags().Changed("family")
+			sizeExplicit := cmd.Flags().Changed("size") || len(args) == 1
+			rememberedFamily, rememberedSize := family, size
+			interactive := ui.Interactive()
+			family, size, err = selectUpCompute(ctx, family, size, familyExplicit, sizeExplicit, assumeYes, interactive)
+			if err != nil {
+				return err
+			}
+			source := upSelectionSource(rememberedFamily, rememberedSize, family, size, familyExplicit, sizeExplicit, assumeYes, interactive)
+			return a.vm.Up(ctx, family, size, source, assumeYes, noProvision)
 		},
 	}
 	cmd.Flags().StringVar(&familyFlag, "family", "", "compute family: "+strings.Join(sizes.Families, "|"))
@@ -73,4 +89,71 @@ func init() {
 	cmd.Flags().StringVar(&timezoneFlag, "timezone", "", "set the VM timezone (IANA zone, e.g. America/New_York)")
 	cmd.Flags().StringVar(&localeFlag, "locale", "", "set the VM locale (e.g. en_US.UTF-8)")
 	rootCmd.AddCommand(cmd)
+}
+
+func upSelectionSource(beforeFamily, beforeSize, family, size string, familyExplicit, sizeExplicit, assumeYes, interactive bool) string {
+	if familyExplicit || sizeExplicit {
+		return "explicit-flag"
+	}
+	if interactive && !assumeYes && (family != beforeFamily || size != beforeSize) {
+		return "customized"
+	}
+	return "remembered"
+}
+
+func selectUpCompute(ctx context.Context, family, size string, familyExplicit, sizeExplicit, assumeYes, interactive bool) (string, string, error) {
+	if familyExplicit || sizeExplicit || assumeYes || !interactive {
+		return family, size, nil
+	}
+
+	family, err := runRememberPrompt(ctx, os.Stdin, os.Stdout, remember.Config{
+		Label:       "Compute family",
+		Remembered:  &family,
+		Choices:     familyRememberChoices(),
+		Validate:    sizes.ValidateFamily,
+		Explanation: "Compute families trade burst pricing, sustained CPU, and memory capacity.",
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	size = normalizeSizeForFamily(family, size)
+	size, err = runRememberPrompt(ctx, os.Stdin, os.Stdout, remember.Config{
+		Label:      "Compute size",
+		Remembered: &size,
+		Choices:    sizeRememberChoices(family),
+		Validate: func(candidate string) error {
+			return sizes.Validate(family, candidate)
+		},
+		Explanation: "Larger sizes trade higher Azure cost for more CPU and memory.",
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	return family, size, nil
+}
+
+func familyRememberChoices() []remember.Choice {
+	choices := make([]remember.Choice, 0, len(sizes.Families))
+	for _, family := range sizes.Families {
+		choices = append(choices, remember.Choice{
+			Value: family,
+			Label: sizes.DescribeFamily(family),
+		})
+	}
+	return choices
+}
+
+func sizeRememberChoices(family string) []remember.Choice {
+	available := sizes.Available(family)
+	choices := make([]remember.Choice, 0, len(available))
+	for _, size := range available {
+		profile, _ := sizes.Get(family, size)
+		choices = append(choices, remember.Choice{
+			Value: size,
+			Label: profile.Describe(),
+		})
+	}
+	return choices
 }

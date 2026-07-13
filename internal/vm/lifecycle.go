@@ -8,11 +8,25 @@ import (
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/sizes"
 	"github.com/mitchell-wallace/rover/internal/stateutil"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 	"github.com/mitchell-wallace/rover/internal/ui"
 )
 
 // Up starts or redeploys the Rover VM and optionally provisions a fresh VM.
-func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProvision bool) error {
+func (s *Service) Up(ctx context.Context, family, size, selectionSource string, assumeYes, noProvision bool) (err error) {
+	started := time.Now()
+	phase := "selection_validation"
+	provisioningOutcome := "unknown"
+	defer func() {
+		sink := s.telemetrySink()
+		sink.RecordUp(telemetry.UpEvent{
+			ComputeFamily: family, ComputeSize: size, SelectionSource: selectionSource,
+			ProvisioningOutcome: provisioningOutcome, Success: err == nil, Duration: time.Since(started),
+		})
+		if err != nil {
+			sink.RecordDiagnostic(telemetry.DiagnosticEvent{Command: "up", Category: phase + "_failure"})
+		}
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -29,6 +43,7 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 	ui.Info("Destination: %s / %s in %s as user %q (disk %d GiB)",
 		s.State.ResourceGroup, s.State.VMName, s.State.Location, s.State.AdminUsername, s.State.DiskGB())
 
+	phase = "vm_status"
 	current, err := s.Azure.Status()
 	fresh := err == nil && !current.Exists
 	resizing := err == nil && current.Exists && current.VMSize != "" && current.VMSize != profile.SKU
@@ -38,7 +53,18 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 	}
 
 	willProvision := fresh && !noProvision
+	if err == nil {
+		switch {
+		case willProvision:
+			provisioningOutcome = "pending"
+		case fresh:
+			provisioningOutcome = "skipped"
+		default:
+			provisioningOutcome = "not-requested"
+		}
+	}
 	if willProvision && !s.Conn.Ready() {
+		phase = "public_ssh_confirmation"
 		ui.Warn("Tailscale isn't configured/connected locally, so the new VM won't join your")
 		ui.Warn("tailnet and public SSH can't be auto-closed — it will stay open on port %d.", s.State.SSHPort())
 		ok, cerr := ui.Confirm(
@@ -54,6 +80,7 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 		}
 	}
 
+	phase = "deployment_confirmation"
 	ok, err := ui.Confirm(
 		"Start/redeploy the Rover VM?",
 		fmt.Sprintf("This creates Azure resources and incurs compute charges while the VM runs (%s %s).", family, size),
@@ -70,12 +97,14 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 		s.State.PublicSSHClosed = false
 	}
 
+	phase = "azure_deploy"
 	info, err := s.Azure.Up(family, size)
 	if err != nil {
 		return err
 	}
 	s.State.Family = family
 	s.State.Size = size
+	phase = "state_sync"
 	if err := stateutil.SyncConnection(s.State, info); err != nil {
 		return err
 	}
@@ -93,6 +122,7 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 		fmt.Println()
 		restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
+		phase = "connectivity_restore"
 		if err := s.Conn.Restore(restoreCtx); err != nil {
 			if resizing {
 				return fmt.Errorf("VM resized, but connectivity restore failed before the swapfile update: %w; after restoring access, run 'rover provision --swapfile-only'", err)
@@ -104,6 +134,7 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 	if resizing {
 		fmt.Println()
 		ui.Info("VM memory size changed — updating only the swapfile (no full re-provision)...")
+		phase = "swapfile_update"
 		if err := s.Provision.ResizeSwapfile(ctx); err != nil {
 			return fmt.Errorf("VM resized, but swapfile update failed: %w; retry with 'rover provision --swapfile-only'", err)
 		}
@@ -112,7 +143,14 @@ func (s *Service) Up(ctx context.Context, family, size string, assumeYes, noProv
 	if willProvision {
 		fmt.Println()
 		ui.Info("New VM — provisioning automatically (pass --no-provision to skip)...")
-		return s.Provision.Run(ctx)
+		phase = "auto_provision"
+		err = s.Provision.Run(ctx)
+		if err != nil {
+			provisioningOutcome = "failed"
+			return err
+		}
+		provisioningOutcome = "succeeded"
+		return nil
 	}
 
 	fmt.Println("\nNext steps:")

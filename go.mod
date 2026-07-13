@@ -4,9 +4,13 @@ go 1.26
 
 require (
 	github.com/charmbracelet/huh v1.0.0
+	github.com/mitchell-wallace/chassis v0.0.0
+	github.com/newrelic/go-agent/v3 v3.43.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.43.0
 )
+
+replace github.com/mitchell-wallace/chassis => ../chassis
 
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
@@ -34,7 +38,11 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sync v0.15.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
+	google.golang.org/grpc v1.80.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )

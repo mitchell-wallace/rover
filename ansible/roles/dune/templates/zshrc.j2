@@ -55,6 +55,16 @@ alias gti='gitui'
 alias ezr='micro ~/.zshrc'
 alias rzr='source ~/.zshrc'
 
+alias cl='claude --dangerously-skip-permissions'
+alias cx='codex --dangerously-bypass-approvals-and-sandbox'
+
+# codex: wraps the real binary to inject the Linear MCP bearer token from a
+# root-owned key file, read via a narrowly scoped passwordless sudo rule
+# (/etc/sudoers.d/codex-linear-key) instead of a file in the home directory.
+codex() {
+  LINEAR_API_KEY="$(sudo cat /etc/codex/linear.key 2>/dev/null)" command codex "$@"
+}
+
 # zoxide: `cd` is backed by the frequency database (matches host setup).
 if command -v zoxide &>/dev/null; then
   eval "$(zoxide init --cmd cd zsh)"
@@ -64,3 +74,8 @@ fi
 if [[ -r "$HOME/.config/broot/br.sh" ]]; then
   source "$HOME/.config/broot/br.sh"
 fi
+
+# Personal customizations that should survive re-provisioning go in
+# ~/.zshrc.local (same convention as .gitconfig.local). Rover never writes
+# this file.
+[[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"

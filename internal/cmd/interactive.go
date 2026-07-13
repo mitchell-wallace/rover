@@ -106,7 +106,7 @@ func runInteractive() error {
 					Run()
 			}
 			if err == nil {
-				err = a.vm.Up(context.Background(), family, size, false, false)
+				err = a.vm.Up(context.Background(), family, size, "customized", false, false)
 			}
 		case "provision":
 			err = a.provision.Run(context.Background())

@@ -16,6 +16,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 )
 
 var _ AzureProvisioner = (*fakeAzure)(nil)
@@ -93,6 +94,21 @@ func (f *fakeAnsible) run(p ansible.Params) error {
 type fakeWaiter struct {
 	hosts []string
 	ports []int
+}
+
+type recordingTelemetry struct {
+	provisions  []telemetry.ProvisionEvent
+	diagnostics []telemetry.DiagnosticEvent
+}
+
+func (*recordingTelemetry) RecordUp(telemetry.UpEvent) {}
+
+func (r *recordingTelemetry) RecordProvision(event telemetry.ProvisionEvent) {
+	r.provisions = append(r.provisions, event)
+}
+
+func (r *recordingTelemetry) RecordDiagnostic(event telemetry.DiagnosticEvent) {
+	r.diagnostics = append(r.diagnostics, event)
 }
 
 func (f *fakeWaiter) wait(_ context.Context, host string, port int) {
@@ -207,6 +223,28 @@ func TestRunOAuthFailureDoesNotProvision(t *testing.T) {
 	}
 	if len(runner.params) != 0 {
 		t.Fatalf("Ansible runs = %d, want 0", len(runner.params))
+	}
+}
+
+func TestRunRecordsProvisionOutcomeAndClassifiedDiagnostic(t *testing.T) {
+	unsetEnv(t, "TS_AUTHKEY")
+	s, runner, _ := newTestService(t, &fakeAzure{info: runningInfo()}, nil)
+	s.State.TailscaleClientID = ""
+	s.State.TailscaleClientSecret = ""
+	runner.err = errors.New("provider error for /home/private/account-resource")
+	recorder := &recordingTelemetry{}
+	s.Telemetry = recorder
+
+	err := s.Run(context.Background())
+	if err == nil {
+		t.Fatal("Run returned nil, want Ansible failure")
+	}
+	if len(recorder.provisions) != 1 || recorder.provisions[0].Mode != "full" || recorder.provisions[0].Success {
+		t.Fatalf("provision events = %#v", recorder.provisions)
+	}
+	want := telemetry.DiagnosticEvent{Command: "provision", Category: "ansible_failure"}
+	if len(recorder.diagnostics) != 1 || recorder.diagnostics[0] != want {
+		t.Fatalf("diagnostics = %#v, want %#v", recorder.diagnostics, want)
 	}
 }
 

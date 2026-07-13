@@ -9,6 +9,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/azure"
 	"github.com/mitchell-wallace/rover/internal/config"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 )
 
 // AzureLifecycle is the Azure subset needed by VM lifecycle workflows.
@@ -45,6 +46,14 @@ type Service struct {
 	TS        tailscale.Client
 	Conn      connRestorer
 	Provision provisioner
+	Telemetry telemetry.Sink
+}
+
+func (s *Service) telemetrySink() telemetry.Sink {
+	if s.Telemetry == nil {
+		return telemetry.NoopSink{}
+	}
+	return s.Telemetry
 }
 
 func scrubKnownHosts(host string, port int) {

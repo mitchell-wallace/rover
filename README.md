@@ -37,6 +37,16 @@ The binary is self-contained: the Bicep templates, Azure scripts, cloud-init,
 and Ansible playbook are embedded and materialized into your cache dir on first
 use.
 
+## Observability (New Relic)
+
+Rover can report best-effort custom events to New Relic when
+`ROVER_NEW_RELIC_LICENSE_KEY` is set. `ROVER_NEW_RELIC_APP_NAME` optionally
+overrides the default application name (`Rover CLI`). The `RoverUp`,
+`RoverProvision`, and `RoverDiagnostic` events describe aggregate compute
+selection and provisioning outcomes; diagnostics contain stable classifications
+only, never raw Azure/provider errors. With no license key, Rover constructs no
+New Relic agent and every command follows the same no-telemetry behavior.
+
 ## How it works
 
 ```

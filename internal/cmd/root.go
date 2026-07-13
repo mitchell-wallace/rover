@@ -13,6 +13,7 @@ import (
 	"github.com/mitchell-wallace/rover/internal/connectivity"
 	"github.com/mitchell-wallace/rover/internal/provision"
 	"github.com/mitchell-wallace/rover/internal/tailscale"
+	"github.com/mitchell-wallace/rover/internal/telemetry"
 	"github.com/mitchell-wallace/rover/internal/ui"
 	"github.com/mitchell-wallace/rover/internal/vm"
 	"github.com/spf13/cobra"
@@ -21,6 +22,8 @@ import (
 )
 
 var version = "dev"
+
+var telemetrySink telemetry.Sink = telemetry.NoopSink{}
 
 var rootCmd = &cobra.Command{
 	Use:   "rover",
@@ -38,6 +41,18 @@ menu, or use the subcommands (login/logout/up/down/status/ssh/provision/doctor) 
 
 // Execute is the entrypoint called by main.
 func Execute(v string) error {
+	return executeWithTelemetry(v, telemetry.Config{})
+}
+
+func executeWithTelemetry(v string, cfg telemetry.Config) error {
+	sink, cleanup := telemetry.Init(cfg)
+	previousSink := telemetrySink
+	telemetrySink = sink
+	defer func() {
+		cleanup()
+		telemetrySink = previousSink
+	}()
+
 	version = v
 	rootCmd.Version = v
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
@@ -100,12 +115,14 @@ func loadContext() (*appContext, error) {
 	tsClient := tailscale.NewClient()
 	conn := connectivity.New(st, az, tsClient)
 	prov := provision.New(st, az, tsClient, dir)
+	prov.Telemetry = telemetrySink
 	vmSvc := &vm.Service{
 		State:     st,
 		Azure:     az,
 		TS:        tsClient,
 		Conn:      conn,
 		Provision: prov,
+		Telemetry: telemetrySink,
 	}
 	conn.Restart = func(ctx context.Context) error {
 		return vmSvc.Restart(ctx)
