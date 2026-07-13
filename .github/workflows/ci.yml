@@ -11,32 +11,55 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          path: rover
+      # go.mod has a local `replace .../chassis => ../chassis` (chassis has
+      # no tagged release yet); check it out as a true sibling so it resolves.
+      - uses: actions/checkout@v6
+        with:
+          repository: mitchell-wallace/chassis
+          path: chassis
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
       - uses: extractions/setup-just@v2
       - run: just build
+        working-directory: rover
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          path: rover
+      - uses: actions/checkout@v6
+        with:
+          repository: mitchell-wallace/chassis
+          path: chassis
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
       - uses: extractions/setup-just@v2
       - run: just test
+        working-directory: rover
 
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          path: rover
+      - uses: actions/checkout@v6
+        with:
+          repository: mitchell-wallace/chassis
+          path: chassis
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
       - uses: golangci/golangci-lint-action@v7
         with:
           version: latest
+          working-directory: rover
 
   shellcheck:
     runs-on: ubuntu-latest

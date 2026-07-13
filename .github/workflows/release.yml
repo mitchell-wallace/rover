@@ -16,9 +16,18 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          path: rover
+
+      # go.mod has a local `replace .../chassis => ../chassis` (chassis has
+      # no tagged release yet); check it out as a true sibling so it resolves.
+      - uses: actions/checkout@v6
+        with:
+          repository: mitchell-wallace/chassis
+          path: chassis
 
       - name: Check if release already exists
         id: check
+        working-directory: rover
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           if gh release view "$TAG" --json tagName --jq .tagName > /dev/null 2>&1; then
@@ -33,13 +42,14 @@ jobs:
       - uses: actions/setup-go@v6
         if: steps.check.outputs.exists != 'true'
         with:
-          go-version-file: go.mod
+          go-version-file: rover/go.mod
 
       - uses: goreleaser/goreleaser-action@v7
         if: steps.check.outputs.exists != 'true'
         with:
           distribution: goreleaser
           version: "~> v2"
+          workdir: rover
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
