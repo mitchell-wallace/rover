@@ -10,6 +10,7 @@ import (
 	nr "github.com/newrelic/go-agent/v3/newrelic"
 )
 
+// Custom New Relic event names reported by Rover.
 const (
 	EventRoverUp         = "RoverUp"
 	EventRoverProvision  = "RoverProvision"
@@ -62,10 +63,16 @@ type Sink interface {
 	RecordDiagnostic(DiagnosticEvent)
 }
 
+// NoopSink discards all telemetry; used when no license key is configured.
 type NoopSink struct{}
 
-func (NoopSink) RecordUp(UpEvent)                 {}
-func (NoopSink) RecordProvision(ProvisionEvent)   {}
+// RecordUp discards the event.
+func (NoopSink) RecordUp(UpEvent) {}
+
+// RecordProvision discards the event.
+func (NoopSink) RecordProvision(ProvisionEvent) {}
+
+// RecordDiagnostic discards the event.
 func (NoopSink) RecordDiagnostic(DiagnosticEvent) {}
 
 type newRelicSink struct{ app *nr.Application }

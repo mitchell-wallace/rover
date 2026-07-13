@@ -77,7 +77,7 @@ func captureTelemetryCommand(t *testing.T, args []string, license string) teleme
 	return telemetryCommandResult{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode}
 }
 
-func TestTelemetryParityHelperProcess(t *testing.T) {
+func TestTelemetryParityHelperProcess(_ *testing.T) {
 	if os.Getenv("ROVER_TELEMETRY_PARITY_HELPER") != "1" {
 		return
 	}
